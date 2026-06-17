@@ -25,7 +25,7 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: 4. Phẫu thuật JSON (Cách ly mã nguồn chống lỗi YAML)
+      - name: 4. Phẫu thuật JSON (An Toàn)
         run: |
           cat << 'EOF' > fix_json.js
           const fs = require("fs");
@@ -71,7 +71,7 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: 7. Nâng cấp Gradle & Tiêm Namespace Tuyệt Đối
+      - name: 7. Nâng cấp Gradle & Tiêm Namespace TRÚNG ĐÍCH
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
@@ -79,12 +79,16 @@ jobs:
           echo "include ':sip2-android-core'" >> settings.gradle
           echo "project(':sip2-android-core').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sip2/android/sip2-android-core')" >> settings.gradle
           
-          # Đẩy script ra file riêng để GitHub không bị rối cú pháp YAML
+          # TUYỆT KỸ: Săn tìm và vá CHÍNH XÁC các bản sao nằm bên trong node_modules
           cat << 'EOF' > fix_namespace.js
           const fs = require("fs");
           const path = require("path");
           
-          const dirs = ["../../react-native-tele", "../../react-native-sip2", "../../react-native-replace-dialer"];
+          const dirs = [
+              "../node_modules/react-native-tele", 
+              "../node_modules/react-native-sip2", 
+              "../node_modules/react-native-replace-dialer"
+          ];
           
           function walk(dir) {
               let results = [];
@@ -106,13 +110,24 @@ jobs:
                       const match = manifest.match(/package="([^"]+)"/);
                       if (match) {
                           const pkg = match[1];
-                          const gradleFile = file.replace(/src\/main\/AndroidManifest\.xml$/, "build.gradle");
-                          if (fs.existsSync(gradleFile)) {
+                          // Tự động lội ngược thư mục để tìm đúng file build.gradle đi kèm
+                          let currentDir = path.dirname(file);
+                          let gradleFile = null;
+                          for (let i = 0; i < 3; i++) {
+                              const checkPath = path.join(currentDir, "build.gradle");
+                              if (fs.existsSync(checkPath)) {
+                                  gradleFile = checkPath;
+                                  break;
+                              }
+                              currentDir = path.dirname(currentDir);
+                          }
+                          
+                          if (gradleFile) {
                               let gradle = fs.readFileSync(gradleFile, "utf8");
                               if (!gradle.includes("namespace")) {
                                   gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkg + "'");
                                   fs.writeFileSync(gradleFile, gradle);
-                                  console.log("Đã vá xong Namespace cho: " + pkg);
+                                  console.log("VÀO VIỆC: Đã vá chuẩn xác bản copy tại: " + gradleFile);
                               }
                           }
                       }
@@ -121,6 +136,10 @@ jobs:
           });
           EOF
           node fix_namespace.js
+          
+          # TẤM KHIÊN CHỐNG CRASH CHO MÃ NGUỒN CŨ TRÊN GRADLE 8.6
+          echo "android.defaults.buildfeatures.buildconfig=true" >> gradle.properties
+          echo "android.nonTransitiveRClass=false" >> gradle.properties
           
           chmod +x gradlew
           ./gradlew assembleDebug
