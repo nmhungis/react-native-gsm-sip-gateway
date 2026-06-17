@@ -8,22 +8,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Lấy mã nguồn chính
+      - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2. Tải 3 Module vệ tinh & Dọn dẹp 캐 cache
+      - name: 2. Tai Module va Va loi JSON
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
           
-          # Hủy diệt mọi file lock cũ để nhổ tận gốc mầm mống lỗi
           find . -name "yarn.lock" -type f -delete
           find . -name "package-lock.json" -type f -delete
-          find . -name "node_modules" -type d -exec rm -rf {} + || true
-
-      - name: 3. Vá lỗi thiếu dấu phẩy JSON (Bằng Python)
-        run: |
+          
           python3 -c '
           import re, glob, os
           for root, dirs, files in os.walk("."):
@@ -31,14 +27,12 @@ jobs:
                   if file == "package.json":
                       filepath = os.path.join(root, file)
                       with open(filepath, "r") as f: data = f.read()
-                      # Bù dấu phẩy bị thiếu để JSON hợp lệ
                       data = re.sub(r"([\x22\]\}\d]|true|false|null)\s*\n\s*(\x22)", r"\1,\n\2", data)
                       with open(filepath, "w") as f: f.write(data)
           '
 
-      - name: 4. BÀN TAY SẮT: Xóa sổ SSH & Ép hạ cấp React Native toàn hệ thống
+      - name: 3. Ep Ha Cap React Native
         run: |
-          # Quét mọi ngóc ngách, đè cứng đường dẫn về thư mục Local và ép React Native về 0.68.2
           for file in $(find . -name "package.json" -type f); do
             jq '
               def fix(obj):
@@ -59,7 +53,7 @@ jobs:
             ' "$file" > tmp.json && mv tmp.json "$file"
           done
 
-      - name: 5. Thiết lập Node 16 & Java 11 (Chuẩn tương thích RN 0.68)
+      - name: 4. Setup Node & Java
         uses: actions/setup-node@v4
         with:
           node-version: '16'
@@ -68,25 +62,19 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 6. Cài đặt thư viện (Bypass mạng)
+      - name: 5. Cai dat thu vien
         run: |
           cd telon-gateway-app
-          # Cài đặt tự động, không mạng SSH, không cảnh báo
           yarn install --ignore-engines
 
-      - name: 7. Hạ cấp Gradle & Cấp quyền
+      - name: 6. Build APK
         run: |
           cd telon-gateway-app/android
-          # Ép Gradle về 7.4.2 để khớp tuyệt đối với Android SDK cũ
           sed -i 's/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g' gradle/wrapper/gradle-wrapper.properties
           chmod +x gradlew
-
-      - name: 8. Build file APK
-        run: |
-          cd telon-gateway-app/android
           ./gradlew assembleDebug
 
-      - name: 9. Upload APK
+      - name: 7. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
