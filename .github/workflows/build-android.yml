@@ -8,10 +8,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Lấy mã nguồn
+      - name: 1. Lấy mã nguồn chính
         uses: actions/checkout@v4
 
-      - name: 2. Thiết lập Node.js (Bỏ qua cache)
+      - name: 1.1 Tải các module vệ tinh (Bắt buộc)
+        run: |
+          git clone https://github.com/telon-org/react-native-tele.git
+          git clone https://github.com/telon-org/react-native-sip2.git
+          git clone https://github.com/telon-org/react-native-replace-dialer.git
+
+      - name: 2. Thiết lập Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '16'
