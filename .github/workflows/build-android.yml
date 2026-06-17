@@ -8,10 +8,58 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Checkout Source Code
+      - name: 1. Lấy mã nguồn chính
         uses: actions/checkout@v4
 
-      - name: 2. Thiết lập Node 16 & Java 11 (Combo chuẩn đồ cổ)
+      - name: 2. Tải 3 Module vệ tinh & Dọn dẹp 캐 cache
+        run: |
+          git clone https://github.com/telon-org/react-native-tele.git
+          git clone https://github.com/telon-org/react-native-sip2.git
+          git clone https://github.com/telon-org/react-native-replace-dialer.git
+          
+          # Hủy diệt mọi file lock cũ để nhổ tận gốc mầm mống lỗi
+          find . -name "yarn.lock" -type f -delete
+          find . -name "package-lock.json" -type f -delete
+          find . -name "node_modules" -type d -exec rm -rf {} + || true
+
+      - name: 3. Vá lỗi thiếu dấu phẩy JSON (Bằng Python)
+        run: |
+          python3 -c '
+          import re, glob, os
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file == "package.json":
+                      filepath = os.path.join(root, file)
+                      with open(filepath, "r") as f: data = f.read()
+                      # Bù dấu phẩy bị thiếu để JSON hợp lệ
+                      data = re.sub(r"([\x22\]\}\d]|true|false|null)\s*\n\s*(\x22)", r"\1,\n\2", data)
+                      with open(filepath, "w") as f: f.write(data)
+          '
+
+      - name: 4. BÀN TAY SẮT: Xóa sổ SSH & Ép hạ cấp React Native toàn hệ thống
+        run: |
+          # Quét mọi ngóc ngách, đè cứng đường dẫn về thư mục Local và ép React Native về 0.68.2
+          for file in $(find . -name "package.json" -type f); do
+            jq '
+              def fix(obj):
+                if obj == null then null
+                else
+                  with_entries(
+                    if .value | type == "string" and test("telon-org/react-native-tele") then .value = "file:../react-native-tele"
+                    elif .value | type == "string" and test("telon-org/react-native-sip2") then .value = "file:../react-native-sip2"
+                    elif .value | type == "string" and test("telon-org/react-native-replace-dialer") then .value = "file:../react-native-replace-dialer"
+                    elif .key == "react-native" then .value = "0.68.2"
+                    elif .key == "react" then .value = "17.0.2"
+                    else . end
+                  )
+                end;
+              (if .dependencies != null then .dependencies = fix(.dependencies) else . end) |
+              (if .devDependencies != null then .devDependencies = fix(.devDependencies) else . end) |
+              (if .peerDependencies != null then .peerDependencies = fix(.peerDependencies) else . end)
+            ' "$file" > tmp.json && mv tmp.json "$file"
+          done
+
+      - name: 5. Thiết lập Node 16 & Java 11 (Chuẩn tương thích RN 0.68)
         uses: actions/setup-node@v4
         with:
           node-version: '16'
@@ -20,57 +68,25 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 3. Vá lỗi JSON & Tạo mồi nhử Git Local
+      - name: 6. Cài đặt thư viện (Bypass mạng)
         run: |
-          # Kéo 3 module vệ tinh về máy ảo
-          git clone https://github.com/telon-org/react-native-tele.git
-          git clone https://github.com/telon-org/react-native-sip2.git
-          git clone https://github.com/telon-org/react-native-replace-dialer.git
-
-          # Chèn dấu phẩy bị thiếu để vá lỗi JSON
-          python3 -c '
-          import re, glob
-          for file in glob.glob("react-native-*/package.json"):
-              with open(file, "r") as f: data = f.read()
-              data = re.sub(r"([\x22\]\}\d]|true|false|null)\s*\n\s*(\x22)", r"\1,\n\2", data)
-              with open(file, "w") as f: f.write(data)
-          '
-
-          # Đóng gói lại thành kho Git nội bộ để lát nữa Yarn dùng
-          for d in react-native-tele react-native-sip2 react-native-replace-dialer; do
-            cd $d
-            git config user.name "AutoFix"
-            git config user.email "fix@example.com"
-            git add package.json
-            git commit -m "Fixed JSON syntax" || true
-            cd ..
-          done
-
-      - name: 4. Cài đặt Dependencies (Tuyệt kỹ đánh tráo Git)
-        run: |
-          # Bẻ lái toàn bộ truy vấn tải 3 module lỗi từ GitHub về thư mục Local đã vá
-          for d in react-native-tele react-native-sip2 react-native-replace-dialer; do
-            git config --global url."file://$GITHUB_WORKSPACE/$d".insteadOf "ssh://git@github.com/telon-org/$d.git"
-            git config --global url."file://$GITHUB_WORKSPACE/$d".insteadOf "git+ssh://git@github.com/telon-org/$d.git"
-            git config --global url."file://$GITHUB_WORKSPACE/$d".insteadOf "https://github.com/telon-org/$d.git"
-            git config --global url."file://$GITHUB_WORKSPACE/$d".insteadOf "git@github.com:telon-org/$d.git"
-          done
-
           cd telon-gateway-app
+          # Cài đặt tự động, không mạng SSH, không cảnh báo
+          yarn install --ignore-engines
 
-          # BƯỚC SỐNG CÒN: TUYỆT ĐỐI GIỮ NGUYÊN yarn.lock, chỉ cài đặt theo đúng khuôn khổ
-          rm -f package-lock.json node_modules
-          yarn install --frozen-lockfile || yarn install
-
-      - name: 5. Hạ cấp Gradle & Biên dịch (Gradle 6.9 khớp RN cũ)
+      - name: 7. Hạ cấp Gradle & Cấp quyền
         run: |
           cd telon-gateway-app/android
-          # Ép lùi Gradle về bản 6.9 để tương thích mượt mà với React Native thời kỳ này
-          sed -i 's/gradle-.*-all\.zip/gradle-6.9-all.zip/g' gradle/wrapper/gradle-wrapper.properties
+          # Ép Gradle về 7.4.2 để khớp tuyệt đối với Android SDK cũ
+          sed -i 's/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g' gradle/wrapper/gradle-wrapper.properties
           chmod +x gradlew
+
+      - name: 8. Build file APK
+        run: |
+          cd telon-gateway-app/android
           ./gradlew assembleDebug
 
-      - name: 6. Upload APK
+      - name: 9. Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
