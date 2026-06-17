@@ -10,10 +10,11 @@ jobs:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2. Clone Modules
+      - name: 2. Clone Modules (Kéo bằng được lõi ngầm)
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
-          git clone https://github.com/telon-org/react-native-sip2.git
+          # BẮT BUỘC dùng --recursive để kéo toàn bộ submodule ẩn bên trong SIP2
+          git clone --recursive https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
 
       - name: 3. Setup Node 18 and Java 17
@@ -23,8 +24,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          # BẮT BUỘC đổi sang Java 17 để chạy được Gradle 8.6
-          java-version: '17' 
+          java-version: '17'
 
       - name: 4. Phẫu thuật JSON (An toàn)
         run: |
@@ -71,11 +71,15 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: 7. Nâng cấp Gradle 8.6 & Biên dịch APK
+      - name: 7. Nâng cấp Gradle & Nối cầu cho SIP Core
         run: |
           cd telon-gateway-app/android
-          # THUẬN THEO Ý MÁY: Nâng cấp thẳng lên 8.6 như log yêu cầu
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
+          
+          # TUYỆT KỸ: Ghi đè vào Settings.gradle để ép Gradle nhận diện lõi sip2-android-core
+          echo "include ':sip2-android-core'" >> settings.gradle
+          echo "project(':sip2-android-core').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sip2/android/sip2-android-core')" >> settings.gradle
+          
           chmod +x gradlew
           ./gradlew assembleDebug
 
