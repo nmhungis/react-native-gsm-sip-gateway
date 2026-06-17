@@ -26,12 +26,12 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 4. Bác Sĩ Node.js - Phẫu thuật JSON an toàn tuyệt đối
+      - name: 4. Phẫu thuật JSON - Ép phiên bản và vá đường dẫn
         run: |
           node -e '
           const fs = require("fs");
           
-          // 4.1 Vá lỗi thiếu dấu phẩy trong package.json của tác giả
+          // Vá lỗi thiếu dấu phẩy trong file JSON của tác giả
           const fixSyntax = (path) => {
             if (fs.existsSync(path)) {
               let data = fs.readFileSync(path, "utf8");
@@ -43,7 +43,7 @@ jobs:
           fixSyntax("react-native-sip2/package.json");
           fixSyntax("react-native-replace-dialer/package.json");
 
-          // 4.2 Trỏ cẩn thận 3 module bị lỗi sang thư mục Local mà KHÔNG làm vỡ cấu trúc
+          // Trỏ 3 module vệ tinh sang thư mục Local và khóa cứng React Native về 0.68.2
           const updateDeps = (path) => {
             if (fs.existsSync(path)) {
               let pkg = JSON.parse(fs.readFileSync(path, "utf8"));
@@ -59,11 +59,16 @@ jobs:
                     if (key.includes("sip2")) deps[key] = "file:../react-native-sip2";
                     if (key.includes("dialer")) deps[key] = "file:../react-native-replace-dialer";
                   }
+                  
+                  // Chốt chặn phiên bản để Gradle không sập
+                  if (key === "react-native") deps[key] = "0.68.2";
+                  if (key === "react") deps[key] = "17.0.2";
                 }
               };
               
               replaceLinks(pkg.dependencies);
               replaceLinks(pkg.devDependencies);
+              replaceLinks(pkg.peerDependencies);
               fs.writeFileSync(path, JSON.stringify(pkg, null, 2));
             }
           };
@@ -74,17 +79,16 @@ jobs:
           updateDeps("react-native-replace-dialer/package.json");
           '
 
-      - name: 5. Cài đặt thư viện nguyên bản
+      - name: 5. Cài đặt thư viện (Xóa Lockfile để ép nhận cấu hình mới)
         run: |
           cd telon-gateway-app
-          # TUYỆT ĐỐI GIỮ NGUYÊN yarn.lock để không làm chết React Native.
-          rm -rf node_modules
+          # Hủy diệt mầm mống 0.80.0
+          rm -rf node_modules yarn.lock package-lock.json
           yarn install
 
       - name: 6. Hạ cấp Gradle & Biên dịch APK
         run: |
           cd telon-gateway-app/android
-          # Ép lùi Gradle về 7.4.2 để khớp tuyệt đối với cấu trúc cũ
           sed -i "s/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g" gradle/wrapper/gradle-wrapper.properties
           chmod +x gradlew
           ./gradlew assembleDebug
