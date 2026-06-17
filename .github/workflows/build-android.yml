@@ -8,16 +8,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Lấy mã nguồn chính
+      - name: 1. Lấy mã nguồn
         uses: actions/checkout@v4
 
-      - name: 1.1 Tải module vệ tinh & Vá lỗi JSON
+      - name: 1.1 Tải module vệ tinh & Vá lỗi JSON nội bộ
         run: |
+          # BƯỚC CỐT LÕI 1: Xóa ngay package.json ở thư mục gốc để chặn lỗi Hoisting (đẩy thư viện lộn xộn)
+          rm -f package.json package-lock.json yarn.lock || true
+
+          # Tải 3 module lỗi bằng HTTPS
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
-          
-          # Tự động chèn dấu phẩy bị thiếu vào file JSON của tác giả
+
+          # Vá lỗi thiếu dấu phẩy JSON
           python3 -c '
           import re, glob
           for file in glob.glob("react-native-*/package.json"):
@@ -26,49 +30,52 @@ jobs:
               with open(file, "w") as f: f.write(data)
           '
 
-      - name: 2. Thiết lập Node 16 & Java 11 (Combo chuẩn cho ứng dụng cũ)
+          # BƯỚC CỐT LÕI 2: Lưu lại bản vá này vào Git local để tẹo nữa NPM có thể copy được
+          for d in react-native-tele react-native-sip2 react-native-replace-dialer; do
+            cd $d
+            git config user.name "AutoFix"
+            git config user.email "fix@example.com"
+            git commit -am "Fixed JSON syntax" || true
+            cd ..
+          done
+
+      - name: 2. Thiết lập Node 16 & Java 11 (Combo chuẩn đồ cổ)
         uses: actions/setup-node@v4
         with:
           node-version: '16'
-          
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 3. Cứu rỗi Yarn Lock (Tuyệt đối không xóa)
+      - name: 3. Tuyệt Kỹ: Đánh tráo đường dẫn Git
         run: |
-          # Ép Git dùng HTTPS thay vì SSH để không bị hỏi mật khẩu
-          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          
+          # Khi NPM hỏi tải link SSH, Git sẽ ném thẳng thư mục local đã vá lỗi JSON ra cho nó!
+          git config --global url."file://$GITHUB_WORKSPACE/react-native-tele".insteadOf "ssh://git@github.com/telon-org/react-native-tele.git"
+          git config --global url."file://$GITHUB_WORKSPACE/react-native-sip2".insteadOf "ssh://git@github.com/telon-org/react-native-sip2.git"
+          git config --global url."file://$GITHUB_WORKSPACE/react-native-replace-dialer".insteadOf "ssh://git@github.com/telon-org/react-native-replace-dialer.git"
+
+      - name: 4. Cài đặt chuẩn xác 100% nguyên bản
+        run: |
           cd telon-gateway-app
+          # KHÔNG SỬA GÌ HẾT, dùng thẳng NPM (vì log trước báo project này dùng NPM)
+          rm -f yarn.lock node_modules
           
-          # Cốt lõi: Sửa trực tiếp link SSH thành HTTPS ngay bên trong file lock của tác giả
-          sed -i 's/git+ssh:\/\/git@github.com\//https:\/\/github.com\//g' yarn.lock
-          sed -i 's/ssh:\/\/git@github.com\//https:\/\/github.com\//g' yarn.lock
-          sed -i 's/git@github.com:/https:\/\/github.com\//g' yarn.lock
+          # Dùng npm ci để đọc chính xác file package-lock.json của tác giả
+          npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
-          # Trỏ 3 module vệ tinh sang thư mục local đã vá lỗi JSON
-          jq ".dependencies[\"react-native-tele\"] = \"file:../react-native-tele\" | .dependencies[\"react-native-sip2\"] = \"file:../react-native-sip2\" | .dependencies[\"react-native-replace-dialer\"] = \"file:../react-native-replace-dialer\"" package.json > package.tmp.json
-          mv package.tmp.json package.json
-
-          # Cài đặt: Lần này Yarn bắt buộc phải đọc file lock và tải React Native bản cũ (0.6x)
-          yarn install
-
-      - name: 4. Hạ cấp Gradle về bản 7.4.2 (Để tương thích với Java 11)
+      - name: 5. Hạ cấp Gradle về 7.4.2 (Tương thích Java 11)
         run: |
           cd telon-gateway-app/android
-          # Ép hệ thống dùng Gradle 7.4 thay vì bản 8.x đời mới
           sed -i 's/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g' gradle/wrapper/gradle-wrapper.properties
           chmod +x gradlew
 
-      - name: 5. Build file APK Debug
+      - name: 6. Build file APK Debug
         run: |
           cd telon-gateway-app/android
           ./gradlew assembleDebug
 
-      - name: 6. Đóng gói Artifact
+      - name: 7. Đóng gói Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
