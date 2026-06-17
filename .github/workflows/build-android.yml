@@ -16,14 +16,15 @@ jobs:
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
 
-      - name: 3. Setup Node and Java
+      - name: 3. Setup Node 18 and Java 17
         uses: actions/setup-node@v4
         with:
           node-version: '18'
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '11'
+          # BẮT BUỘC đổi sang Java 17 để chạy được Gradle 8.6
+          java-version: '17' 
 
       - name: 4. Phẫu thuật JSON (An toàn)
         run: |
@@ -70,10 +71,11 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: 7. Hạ cấp Gradle & Biên dịch APK
+      - name: 7. Nâng cấp Gradle 8.6 & Biên dịch APK
         run: |
           cd telon-gateway-app/android
-          sed -i "s/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g" gradle/wrapper/gradle-wrapper.properties
+          # THUẬN THEO Ý MÁY: Nâng cấp thẳng lên 8.6 như log yêu cầu
+          sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
           chmod +x gradlew
           ./gradlew assembleDebug
 
