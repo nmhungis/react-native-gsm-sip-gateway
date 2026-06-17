@@ -11,9 +11,8 @@ jobs:
       - name: 1. Lấy mã nguồn chính
         uses: actions/checkout@v4
 
-      - name: 1.1 Kéo module vệ tinh về đúng vị trí gốc
+      - name: 1.1 Kéo module vệ tinh về đúng vị trí
         run: |
-          # Phải kéo về thư mục gốc, ngang hàng với telon-gateway-app
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
@@ -30,30 +29,42 @@ jobs:
                   f.write(data)
           '
 
-      - name: 2. Thiết lập Node.js (Về v16 để hợp RN cũ)
+      - name: 2. Thiết lập Node.js v18
         uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '18'
 
-      - name: 3. Thiết lập Java (JDK 17 tương thích Gradle 8.14)
+      - name: 3. Thiết lập Java JDK 17 (Dành cho Gradle 8.14)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: 4. Cài đặt thư viện KHÔNG phá vỡ cấu trúc gốc
+      - name: 4. Cài đặt thư viện & Tiêu diệt Hoisting
         run: |
-          # Ép Git dùng HTTPS thay vì SSH để tránh lỗi Permission Denied
+          # BƯỚC CỐT LÕI 1: Xóa mầm mống gây Hoisting ở thư mục root
+          rm -f package.json yarn.lock package-lock.json
+          
+          # Ép Git dùng HTTPS thay vì SSH
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           
           cd telon-gateway-app
+          rm -f package-lock.json yarn.lock
           
-          # Xóa yarn.lock (nếu có) để tránh xung đột
-          rm -f yarn.lock
+          # Nối 3 module vệ tinh vào cài đặt
+          jq '.dependencies["react-native-tele"] = "file:../react-native-tele" | .dependencies["react-native-sip2"] = "file:../react-native-sip2" | .dependencies["react-native-replace-dialer"] = "file:../react-native-replace-dialer"' package.json > package.tmp.json
+          mv package.tmp.json package.json
           
-          # Dùng npm ci (Clean Install) để ép cài đặt chuẩn xác 100% theo package-lock.json gốc
-          npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+          # Cài đặt ép buộc bỏ qua cảnh báo
+          npm install --legacy-peer-deps
+          
+          # BƯỚC CỐT LÕI 2: Cài đặt gói CLI tương thích để có file gradle
+          npm install @react-native-community/cli-platform-android@9.0.0 --no-save --legacy-peer-deps
+          
+          # BƯỚC CỐT LÕI 3: Dùng cURL tải trực tiếp file bị thiếu đặt đúng vào mâm cho Gradle xơi!
+          mkdir -p node_modules/@react-native-community/cli-platform-android
+          curl -s https://raw.githubusercontent.com/react-native-community/cli/v9.0.0/packages/cli-platform-android/native_modules.gradle -o node_modules/@react-native-community/cli-platform-android/native_modules.gradle
 
       - name: 5. Phân quyền thực thi cho Gradle
         run: |
