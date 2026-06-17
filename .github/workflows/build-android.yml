@@ -17,7 +17,7 @@ jobs:
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
 
-      - name: 1.2 Tự động vá lỗi cú pháp JSON của tác giả gốc
+      - name: 1.2 Vá lỗi cú pháp JSON của module vệ tinh
         run: |
           python3 -c '
           import re, glob
@@ -29,32 +29,27 @@ jobs:
                   f.write(data)
           '
 
-      - name: 2. Thiết lập Node.js (Nâng cấp lên 18)
+      - name: 2. Thiết lập Node.js (Trả về v16 gốc)
         uses: actions/setup-node@v4
         with:
-          node-version: '18' # <-- Đã sửa lỗi phiên bản ở đây
+          node-version: '16'
 
-      - name: 3. Thiết lập Java (Nâng cấp lên JDK 17)
+      - name: 3. Thiết lập Java (Trả về JDK 11 gốc)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17' # <-- RN 0.80 yêu cầu Java 17
+          java-version: '11'
 
-      - name: 4. Cài đặt thư viện bằng Yarn (Link Local)
+      - name: 4. Cài đặt thư viện bằng NPM (Giữ nguyên Package Lock)
         run: |
           cd telon-gateway-app
-          rm -f yarn.lock package-lock.json
           
-          jq ".dependencies |= with_entries(
-            if (.value | type == \"string\") and (.value | contains(\"react-native-tele\")) then .value = \"file:../react-native-tele\"
-            elif (.value | type == \"string\") and (.value | contains(\"react-native-sip2\")) then .value = \"file:../react-native-sip2\"
-            elif (.value | type == \"string\") and (.value | contains(\"react-native-replace-dialer\")) then .value = \"file:../react-native-replace-dialer\"
-            else . end
-          )" package.json > package.tmp.json
-          
+          # Dùng jq để trỏ thẳng 3 module lỗi vào file nội bộ đã tải sẵn
+          jq '.dependencies["react-native-tele"] = "file:../react-native-tele" | .dependencies["react-native-sip2"] = "file:../react-native-sip2" | .dependencies["react-native-replace-dialer"] = "file:../react-native-replace-dialer"' package.json > package.tmp.json
           mv package.tmp.json package.json
           
-          yarn install
+          # KHÔNG xóa package-lock.json, dùng NPM với cờ legacy để giữ đúng cấu trúc phiên bản React Native cũ
+          npm install --legacy-peer-deps
 
       - name: 5. Phân quyền thực thi cho Gradle
         run: |
