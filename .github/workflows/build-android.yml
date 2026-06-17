@@ -8,10 +8,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Checkout Source Code
+      - name: 1. Lấy mã nguồn chính
         uses: actions/checkout@v4
 
-      - name: 2. Clone Submodules
+      - name: 2. Clone 3 Module Vệ Tinh
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
@@ -26,71 +26,70 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 4. Bác Sĩ Node.js: Vá & Cấu Hình JSON Tuyệt Đối An Toàn
+      - name: 4. Bác Sĩ Node.js - Phẫu thuật JSON an toàn tuyệt đối
         run: |
           node -e '
           const fs = require("fs");
-          const files = [
-            "telon-gateway-app/package.json", 
-            "react-native-tele/package.json", 
-            "react-native-sip2/package.json", 
-            "react-native-replace-dialer/package.json"
-          ];
           
-          files.forEach(file => {
-            if (!fs.existsSync(file)) return;
-            let data = fs.readFileSync(file, "utf8");
-            
-            // 4.1: Chữa cái lỗi quên dấu phẩy kinh điển của tác giả
-            data = data.replace(/([\"\}\d]|true|false|null)\s*\n\s*(\")/g, "$1,\n$2");
-            
-            let json = JSON.parse(data);
-            
-            // 4.2: Hàm quét và sửa dứt điểm mọi đường dẫn & phiên bản
-            const fixDeps = (deps) => {
-              if (!deps) return;
-              for (let key in deps) {
-                // Ép 3 vệ tinh về dùng thư mục Local đã tải ở Bước 2
-                if (["react-native-tele", "react-native-sip2", "react-native-replace-dialer"].includes(key)) {
-                  deps[key] = "file:../" + key;
-                } else if (typeof deps[key] === "string" && deps[key].includes("github.com/telon-org")) {
-                  if (key.includes("tele")) deps[key] = "file:../react-native-tele";
-                  if (key.includes("sip2")) deps[key] = "file:../react-native-sip2";
-                  if (key.includes("dialer")) deps[key] = "file:../react-native-replace-dialer";
+          // 4.1 Vá lỗi thiếu dấu phẩy trong package.json của tác giả
+          const fixSyntax = (path) => {
+            if (fs.existsSync(path)) {
+              let data = fs.readFileSync(path, "utf8");
+              data = data.replace(/([\"\}\d]|true|false|null)\s*\n\s*(\")/g, "$1,\n$2");
+              fs.writeFileSync(path, data);
+            }
+          };
+          fixSyntax("react-native-tele/package.json");
+          fixSyntax("react-native-sip2/package.json");
+          fixSyntax("react-native-replace-dialer/package.json");
+
+          // 4.2 Trỏ cẩn thận 3 module bị lỗi sang thư mục Local mà KHÔNG làm vỡ cấu trúc
+          const updateDeps = (path) => {
+            if (fs.existsSync(path)) {
+              let pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+              const targets = ["react-native-tele", "react-native-sip2", "react-native-replace-dialer"];
+              
+              const replaceLinks = (deps) => {
+                if (!deps) return;
+                for (let key in deps) {
+                  if (targets.includes(key)) {
+                    deps[key] = "file:../" + key;
+                  } else if (typeof deps[key] === "string" && deps[key].includes("github.com/telon-org")) {
+                    if (key.includes("tele")) deps[key] = "file:../react-native-tele";
+                    if (key.includes("sip2")) deps[key] = "file:../react-native-sip2";
+                    if (key.includes("dialer")) deps[key] = "file:../react-native-replace-dialer";
+                  }
                 }
-                
-                // Khóa cứng React Native về thời đồ đá để Gradle không bị thiếu file
-                if (key === "react-native") deps[key] = "0.68.2";
-                if (key === "react") deps[key] = "17.0.2";
-              }
-            };
-            
-            fixDeps(json.dependencies);
-            fixDeps(json.devDependencies);
-            fixDeps(json.peerDependencies);
-            
-            // Ghi đè lại file chuẩn xịn 100%
-            fs.writeFileSync(file, JSON.stringify(json, null, 2));
-            console.log("Đã phẫu thuật thành công: " + file);
-          });
+              };
+              
+              replaceLinks(pkg.dependencies);
+              replaceLinks(pkg.devDependencies);
+              fs.writeFileSync(path, JSON.stringify(pkg, null, 2));
+            }
+          };
+          
+          updateDeps("telon-gateway-app/package.json");
+          updateDeps("react-native-tele/package.json");
+          updateDeps("react-native-sip2/package.json");
+          updateDeps("react-native-replace-dialer/package.json");
           '
 
-      - name: 5. Cài đặt thư viện (Sạch sẽ & Không lên mạng)
+      - name: 5. Cài đặt thư viện nguyên bản
         run: |
           cd telon-gateway-app
-          # Đập bỏ mọi tàn dư cũ
-          rm -rf node_modules yarn.lock package-lock.json
-          yarn install --ignore-engines
+          # TUYỆT ĐỐI GIỮ NGUYÊN yarn.lock để không làm chết React Native.
+          rm -rf node_modules
+          yarn install
 
       - name: 6. Hạ cấp Gradle & Biên dịch APK
         run: |
           cd telon-gateway-app/android
-          # Ép lùi Gradle về 7.4.2 để khớp tuyệt đối với Android SDK của bản 0.68.2
+          # Ép lùi Gradle về 7.4.2 để khớp tuyệt đối với cấu trúc cũ
           sed -i "s/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g" gradle/wrapper/gradle-wrapper.properties
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: 7. Upload APK
+      - name: 7. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
