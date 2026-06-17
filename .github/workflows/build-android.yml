@@ -13,15 +13,12 @@ jobs:
 
       - name: 1.1 Tải module vệ tinh & Vá lỗi JSON nội bộ
         run: |
-          # BƯỚC CỐT LÕI 1: Xóa ngay package.json ở thư mục gốc để chặn lỗi Hoisting (đẩy thư viện lộn xộn)
           rm -f package.json package-lock.json yarn.lock || true
 
-          # Tải 3 module lỗi bằng HTTPS
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
 
-          # Vá lỗi thiếu dấu phẩy JSON
           python3 -c '
           import re, glob
           for file in glob.glob("react-native-*/package.json"):
@@ -30,7 +27,6 @@ jobs:
               with open(file, "w") as f: f.write(data)
           '
 
-          # BƯỚC CỐT LÕI 2: Lưu lại bản vá này vào Git local để tẹo nữa NPM có thể copy được
           for d in react-native-tele react-native-sip2 react-native-replace-dialer; do
             cd $d
             git config user.name "AutoFix"
@@ -39,7 +35,7 @@ jobs:
             cd ..
           done
 
-      - name: 2. Thiết lập Node 16 & Java 11 (Combo chuẩn đồ cổ)
+      - name: 2. Thiết lập Node 16 & Java 11
         uses: actions/setup-node@v4
         with:
           node-version: '16'
@@ -48,23 +44,19 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 3. Tuyệt Kỹ: Đánh tráo đường dẫn Git
+      - name: 3. Tuyệt Kỹ Đánh tráo đường dẫn Git
         run: |
-          # Khi NPM hỏi tải link SSH, Git sẽ ném thẳng thư mục local đã vá lỗi JSON ra cho nó!
           git config --global url."file://$GITHUB_WORKSPACE/react-native-tele".insteadOf "ssh://git@github.com/telon-org/react-native-tele.git"
           git config --global url."file://$GITHUB_WORKSPACE/react-native-sip2".insteadOf "ssh://git@github.com/telon-org/react-native-sip2.git"
           git config --global url."file://$GITHUB_WORKSPACE/react-native-replace-dialer".insteadOf "ssh://git@github.com/telon-org/react-native-replace-dialer.git"
 
-      - name: 4. Cài đặt chuẩn xác 100% nguyên bản
+      - name: 4. Cài đặt chuẩn xác nguyên bản
         run: |
           cd telon-gateway-app
-          # KHÔNG SỬA GÌ HẾT, dùng thẳng NPM (vì log trước báo project này dùng NPM)
           rm -f yarn.lock node_modules
-          
-          # Dùng npm ci để đọc chính xác file package-lock.json của tác giả
           npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
-      - name: 5. Hạ cấp Gradle về 7.4.2 (Tương thích Java 11)
+      - name: 5. Hạ cấp Gradle về 7.4.2
         run: |
           cd telon-gateway-app/android
           sed -i 's/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g' gradle/wrapper/gradle-wrapper.properties
