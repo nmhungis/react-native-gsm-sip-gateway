@@ -71,7 +71,7 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: 7. Nâng cấp Gradle & Tiêm Namespace TRÚNG ĐÍCH
+      - name: 7. BÀN TAY SẮT: Cưỡng chế mọi module lên chuẩn AGP 8.6
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
@@ -79,65 +79,90 @@ jobs:
           echo "include ':sip2-android-core'" >> settings.gradle
           echo "project(':sip2-android-core').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sip2/android/sip2-android-core')" >> settings.gradle
           
-          # TUYỆT KỸ: Săn tìm và vá CHÍNH XÁC các bản sao nằm bên trong node_modules
-          cat << 'EOF' > fix_namespace.js
+          # KỊCH BẢN ĐẠI TU: Bơm code thẳng tay nếu các module vệ tinh bị trống rỗng!
+          cat << 'EOF' > fix_agp.js
           const fs = require("fs");
           const path = require("path");
           
           const dirs = [
-              "../node_modules/react-native-tele", 
-              "../node_modules/react-native-sip2", 
-              "../node_modules/react-native-replace-dialer"
+              "../node_modules/react-native-tele/android", 
+              "../node_modules/react-native-sip2/android", 
+              "../node_modules/react-native-sip2/android/sip2-android-core",
+              "../node_modules/react-native-replace-dialer/android"
           ];
           
-          function walk(dir) {
-              let results = [];
-              if (!fs.existsSync(dir)) return results;
-              const list = fs.readdirSync(dir);
-              list.forEach(file => {
-                  file = path.join(dir, file);
-                  const stat = fs.statSync(file);
-                  if (stat && stat.isDirectory()) results = results.concat(walk(file));
-                  else results.push(file);
-              });
-              return results;
-          }
-          
-          dirs.forEach(dir => {
-              walk(dir).forEach(file => {
-                  if (file.endsWith("AndroidManifest.xml")) {
-                      const manifest = fs.readFileSync(file, "utf8");
-                      const match = manifest.match(/package="([^"]+)"/);
-                      if (match) {
-                          const pkg = match[1];
-                          // Tự động lội ngược thư mục để tìm đúng file build.gradle đi kèm
-                          let currentDir = path.dirname(file);
-                          let gradleFile = null;
-                          for (let i = 0; i < 3; i++) {
-                              const checkPath = path.join(currentDir, "build.gradle");
-                              if (fs.existsSync(checkPath)) {
-                                  gradleFile = checkPath;
-                                  break;
-                              }
-                              currentDir = path.dirname(currentDir);
-                          }
-                          
-                          if (gradleFile) {
-                              let gradle = fs.readFileSync(gradleFile, "utf8");
-                              if (!gradle.includes("namespace")) {
-                                  gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkg + "'");
-                                  fs.writeFileSync(gradleFile, gradle);
-                                  console.log("VÀO VIỆC: Đã vá chuẩn xác bản copy tại: " + gradleFile);
-                              }
-                          }
+          dirs.forEach(androidDir => {
+              // 1. Nếu thiếu hẳn thư mục android -> Tạo luôn
+              if (!fs.existsSync(androidDir)) {
+                  fs.mkdirSync(androidDir, {recursive: true});
+              }
+              
+              let gradleFile = path.join(androidDir, "build.gradle");
+              let pkgName = "one.telefon." + path.basename(path.dirname(androidDir)).replace(/[^a-zA-Z0-9]/g, "");
+              if (androidDir.includes("sip2-android-core")) pkgName = "one.telefon.sip2.core";
+              
+              let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
+              
+              // 2. Nếu thiếu Manifest -> Đẻ file Manifest
+              if (fs.existsSync(manifestPath)) {
+                  let manifest = fs.readFileSync(manifestPath, "utf8");
+                  let m = manifest.match(/package="([^"]+)"/);
+                  if (m) pkgName = m[1];
+              } else {
+                  fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
+                  fs.writeFileSync(manifestPath, `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="${pkgName}"></manifest>`);
+              }
+              
+              // 3. Nếu thiếu hoặc có Gradle -> Ép kiểu lên AGP 8.6
+              if (!fs.existsSync(gradleFile)) {
+                  let content = `
+                  apply plugin: 'com.android.library'
+                  android {
+                      namespace '${pkgName}'
+                      compileSdkVersion 34
+                      defaultConfig {
+                          minSdkVersion 21
+                          targetSdkVersion 34
                       }
                   }
-              });
+                  dependencies {
+                      implementation "com.facebook.react:react-native:+"
+                  }
+                  `;
+                  fs.writeFileSync(gradleFile, content);
+                  console.log("TẠO MỚI CẤU HÌNH CHO: " + gradleFile);
+              } else {
+                  let gradle = fs.readFileSync(gradleFile, "utf8");
+                  
+                  if (gradle.includes("android-library") && !gradle.includes("com.android.library")) {
+                      gradle = gradle.replace(/apply\s+plugin:\s*['"]android-library['"]/g, "apply plugin: 'com.android.library'");
+                  } else if (!gradle.includes("com.android.library") && !gradle.includes("com.android.application")) {
+                      gradle = "apply plugin: 'com.android.library'\n" + gradle;
+                  }
+
+                  if (!gradle.includes("namespace")) {
+                      if (gradle.includes("android {")) {
+                          gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkgName + "'");
+                      } else {
+                          gradle += `\nandroid {\n    namespace '${pkgName}'\n    compileSdkVersion 34\n}\n`;
+                      }
+                  }
+
+                  gradle = gradle.replace(/\bcompile\s+/g, "implementation ");
+                  gradle = gradle.replace(/\bcompile\(/g, "implementation(");
+                  
+                  gradle = gradle.replace(/compileSdkVersion\s+\d+/g, "compileSdkVersion 34");
+                  gradle = gradle.replace(/targetSdkVersion\s+\d+/g, "targetSdkVersion 34");
+                  gradle = gradle.replace(/buildToolsVersion\s+['"][^'"]+['"]/g, "");
+
+                  fs.writeFileSync(gradleFile, gradle);
+                  console.log("ÉP KIỂU THÀNH CÔNG CHO: " + gradleFile);
+              }
           });
           EOF
-          node fix_namespace.js
+          node fix_agp.js
           
-          # TẤM KHIÊN CHỐNG CRASH CHO MÃ NGUỒN CŨ TRÊN GRADLE 8.6
+          # Tấm khiên chống sập cho mã nguồn cũ
           echo "android.defaults.buildfeatures.buildconfig=true" >> gradle.properties
           echo "android.nonTransitiveRClass=false" >> gradle.properties
           
