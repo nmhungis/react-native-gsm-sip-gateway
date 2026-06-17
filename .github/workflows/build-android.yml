@@ -11,7 +11,7 @@ jobs:
       - name: 1. Lấy mã nguồn chính
         uses: actions/checkout@v4
 
-      - name: 1.1 Tải các module vệ tinh (Bắt buộc)
+      - name: 1.1 Tải các module vệ tinh
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
@@ -28,9 +28,15 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
+      - name: 3.5 Ép Git sử dụng HTTPS thay vì SSH (Sửa lỗi Public Key)
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: 4. Cài đặt thư viện Node bằng Yarn
         run: |
           cd telon-gateway-app
+          rm -f package-lock.json # Xóa file rác gây xung đột package manager
           yarn install
 
       - name: 5. Phân quyền thực thi cho Gradle
