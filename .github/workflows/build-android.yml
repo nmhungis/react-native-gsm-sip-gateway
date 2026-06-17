@@ -28,15 +28,23 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 3.5 Ép Git sử dụng HTTPS thay vì SSH (Sửa lỗi Public Key)
+      - name: 4. Cài đặt thư viện Node bằng Yarn (Bao gồm Fix SSH)
         run: |
+          # 4.1: Ép cấu hình Git cục bộ ngay trong phiên chạy này
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
-
-      - name: 4. Cài đặt thư viện Node bằng Yarn
-        run: |
+          
           cd telon-gateway-app
-          rm -f package-lock.json # Xóa file rác gây xung đột package manager
+          
+          # 4.2: Xóa sạch các file lock chứa link SSH cũ
+          rm -f yarn.lock
+          rm -f package-lock.json
+          
+          # 4.3: Ép thay đổi text (SSH sang HTTPS) trực tiếp trong file package.json
+          sed -i 's/ssh:\/\/git@github.com\//https:\/\/github.com\//g' package.json
+          sed -i 's/git@github.com:/https:\/\/github.com\//g' package.json
+          
+          # 4.4: Tiến hành cài đặt mới hoàn toàn
           yarn install
 
       - name: 5. Phân quyền thực thi cho Gradle
