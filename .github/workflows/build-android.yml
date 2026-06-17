@@ -8,16 +8,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1. Lấy mã nguồn chính
+      - name: 1. Lấy mã nguồn
         uses: actions/checkout@v4
 
-      - name: 1.1 Tải module vệ tinh & Vá lỗi JSON
+      - name: 1.1 Tải module vệ tinh & Vá lỗi JSON nội bộ
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
           
-          # Tự động chèn dấu phẩy bị thiếu vào file JSON của tác giả
           python3 -c '
           import re, glob
           for file in glob.glob("react-native-*/package.json"):
@@ -35,40 +34,42 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 3. Tiêm Vaccine (Khóa cứng phiên bản, chống Ngựa Gỗ)
+      - name: 3. BÀN TAY SẮT: Ép hạ cấp toàn bộ hệ thống
         run: |
-          # Ép Git dùng HTTPS thay vì SSH
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           
           cd telon-gateway-app
           
-          # Lôi chính xác số phiên bản React Native mà ứng dụng gốc đang dùng (VD: ^0.63.4)
-          RN_VER=$(jq -r '.dependencies["react-native"]' package.json)
-          # Nếu tác giả để trống, tự động chốt bản 0.66.0 an toàn
-          if [ "$RN_VER" == "null" ] || [ -z "$RN_VER" ] || [ "$RN_VER" == "*" ]; then RN_VER="^0.66.0"; fi
-          echo "Bản React Native chốt sổ: $RN_VER"
+          # Tác giả đã update ẩu file cấu hình nhưng bỏ quên mã nguồn Android.
+          # Chúng ta KHÔNG dùng số của tác giả nữa. Gắn cứng bản 0.68.2!
+          RN_VER="0.68.2"
+          REACT_VER="17.0.2"
           
-          # BƯỚC CỐT LÕI: Đè phiên bản cũ này vào 3 module vệ tinh để chúng không được phép tải bản mới
+          echo "Bắt buộc hạ cấp React Native về: $RN_VER"
+          
+          # 1. Ép 3 module vệ tinh về bản cũ
           for d in tele sip2 replace-dialer; do
             if [ -f "../react-native-$d/package.json" ]; then
               jq ".dependencies[\"react-native\"] = \"$RN_VER\" | .peerDependencies[\"react-native\"] = \"$RN_VER\"" ../react-native-$d/package.json > tmp.json && mv tmp.json ../react-native-$d/package.json
             fi
           done
           
-          # Trỏ 3 module về local và thiết lập "Resolutions" khóa chặt mọi phiên bản React Native trên toàn hệ thống
-          jq ".resolutions[\"react-native\"] = \"$RN_VER\" | \
+          # 2. Ép ứng dụng chính & Trỏ đường dẫn local
+          jq ".dependencies[\"react-native\"] = \"$RN_VER\" | \
+              .dependencies[\"react\"] = \"$REACT_VER\" | \
+              .resolutions[\"react-native\"] = \"$RN_VER\" | \
               .dependencies[\"react-native-tele\"] = \"file:../react-native-tele\" | \
               .dependencies[\"react-native-sip2\"] = \"file:../react-native-sip2\" | \
               .dependencies[\"react-native-replace-dialer\"] = \"file:../react-native-replace-dialer\"" \
               package.json > package.tmp.json
           mv package.tmp.json package.json
           
-          # Xóa toàn bộ tàn dư khóa cũ, bắt Yarn cài lại đúng phiên bản đã bị ép
+          # 3. Đập bỏ file lock cũ, bắt Yarn cài mới hoàn toàn theo khuôn khổ đã ép
           rm -f yarn.lock package-lock.json
           yarn install
 
-      - name: 4. Hạ cấp Gradle về 7.4.2 (Ép tương thích)
+      - name: 4. Hạ cấp Gradle về 7.4.2 (Khớp với Java 11)
         run: |
           cd telon-gateway-app/android
           sed -i 's/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g' gradle/wrapper/gradle-wrapper.properties
