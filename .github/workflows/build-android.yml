@@ -11,7 +11,7 @@ jobs:
       - name: 1. Lấy mã nguồn chính
         uses: actions/checkout@v4
 
-      - name: 1.1 Tải các module vệ tinh
+      - name: 1.1 Tải các module vệ tinh (Local Folders)
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
@@ -28,23 +28,23 @@ jobs:
           distribution: 'zulu'
           java-version: '11'
 
-      - name: 4. Cài đặt thư viện Node bằng Yarn (Bao gồm Fix SSH)
+      - name: 4. Cài đặt thư viện bằng Yarn (Link Local)
         run: |
-          # 4.1: Ép cấu hình Git cục bộ ngay trong phiên chạy này
-          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          
           cd telon-gateway-app
+          rm -f yarn.lock package-lock.json
           
-          # 4.2: Xóa sạch các file lock chứa link SSH cũ
-          rm -f yarn.lock
-          rm -f package-lock.json
+          # Dùng công cụ jq chuyên dụng để sửa file package.json an toàn
+          # Chuyển hướng 3 module bị lỗi sang dùng thư mục đã tải sẵn ở bước 1.1
+          jq '.dependencies |= with_entries(
+            if (.value | type == "string") and (.value | contains("react-native-tele")) then .value = "file:../react-native-tele"
+            elif (.value | type == "string") and (.value | contains("react-native-sip2")) then .value = "file:../react-native-sip2"
+            elif (.value | type == "string") and (.value | contains("react-native-replace-dialer")) then .value = "file:../react-native-replace-dialer"
+            else . end
+          )' package.json > package.tmp.json
           
-          # 4.3: Ép thay đổi text (SSH sang HTTPS) trực tiếp trong file package.json
-          sed -i 's/ssh:\/\/git@github.com\//https:\/\/github.com\//g' package.json
-          sed -i 's/git@github.com:/https:\/\/github.com\//g' package.json
+          mv package.tmp.json package.json
           
-          # 4.4: Tiến hành cài đặt mới hoàn toàn
+          # Tiến hành cài đặt (Lần này Yarn sẽ chỉ đọc file trên ổ cứng, không cần lên mạng lấy 3 module kia)
           yarn install
 
       - name: 5. Phân quyền thực thi cho Gradle
