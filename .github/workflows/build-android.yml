@@ -124,7 +124,6 @@ jobs:
                   "    implementation 'com.facebook.react:react-native:+'\n" +
                   "}\n";
                   fs.writeFileSync(gradleFile, content);
-                  console.log("TAO MOI CAU HINH CHO: " + gradleFile);
               } else {
                   let gradle = fs.readFileSync(gradleFile, "utf8");
                   
@@ -150,19 +149,76 @@ jobs:
                   gradle = gradle.replace(/buildToolsVersion\s+['"][^'"]+['"]/g, "");
 
                   fs.writeFileSync(gradleFile, gradle);
-                  console.log("EP KIEU THANH CONG CHO: " + gradleFile);
               }
           });
           EOF
           node fix_agp.js
+
+      - name: "8. Fix Android 12 Exported Rule"
+        run: |
+          cd telon-gateway-app/android
+          cat << 'EOF' > fix_manifests.js
+          const fs = require("fs");
+          const path = require("path");
+
+          function walk(dir) {
+              let results = [];
+              if (!fs.existsSync(dir)) return results;
+              const list = fs.readdirSync(dir);
+              list.forEach(file => {
+                  file = path.join(dir, file);
+                  const stat = fs.statSync(file);
+                  if (stat && stat.isDirectory() && !file.includes("build") && !file.includes(".git")) {
+                      results = results.concat(walk(file));
+                  } else if (file.endsWith("AndroidManifest.xml")) {
+                      results.push(file);
+                  }
+              });
+              return results;
+          }
+
+          const manifests = walk(".").concat(walk("../node_modules"));
+          
+          manifests.forEach(file => {
+              let content = fs.readFileSync(file, "utf8");
+              let changed = false;
+              
+              content = content.replace(/<(activity|activity-alias|service|receiver)([^>]*)>/gi, (match, tag, attrs) => {
+                  if (!attrs.includes("android:exported")) {
+                      changed = true;
+                      return "<" + tag + ' android:exported="true"' + attrs + ">";
+                  }
+                  return match;
+              });
+
+              if (changed) {
+                  fs.writeFileSync(file, content);
+                  console.log("DA VA LOI BAO MAT ANDROID 12 CHO: " + file);
+              }
+          });
+          
+          // Bổ sung namespace cho app/build.gradle để phòng ngừa lỗi
+          let appGradle = "app/build.gradle";
+          if (fs.existsSync(appGradle)) {
+              let gradle = fs.readFileSync(appGradle, "utf8");
+              if (!gradle.includes("namespace ")) {
+                  gradle = gradle.replace(/android\s*\{/, "android {\n    namespace 'one.telefon.gateway'");
+                  fs.writeFileSync(appGradle, gradle);
+              }
+          }
+          EOF
+          node fix_manifests.js
           
           echo "android.defaults.buildfeatures.buildconfig=true" >> gradle.properties
           echo "android.nonTransitiveRClass=false" >> gradle.properties
-          
+
+      - name: "9. Build APK"
+        run: |
+          cd telon-gateway-app/android
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: "8. Upload Artifact"
+      - name: "10. Upload Artifact"
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
