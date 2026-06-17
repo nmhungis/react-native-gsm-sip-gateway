@@ -1,76 +1,4 @@
-name: Build Android Debug APK
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 1. Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 2. Clone Modules
-        run: |
-          git clone https://github.com/telon-org/react-native-tele.git
-          git clone --recursive https://github.com/telon-org/react-native-sip2.git
-          git clone https://github.com/telon-org/react-native-replace-dialer.git
-
-      - name: 3. Setup Node 18 and Java 17
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: 4. Phẫu thuật JSON (An toàn)
-        run: |
-          node -e '
-          const fs = require("fs");
-          const fixJSON = (p) => {
-            if(!fs.existsSync(p)) return;
-            let txt = fs.readFileSync(p, "utf8");
-            txt = txt.replace(/([\"\u007D\d]|true|false|null)\s*\n\s*(\")/g, "$1,\n$2");
-            fs.writeFileSync(p, txt);
-          };
-          ["react-native-tele/package.json","react-native-sip2/package.json","react-native-replace-dialer/package.json"].forEach(fixJSON);
-          
-          const fixDeps = (p) => {
-            if(!fs.existsSync(p)) return;
-            let pkg = JSON.parse(fs.readFileSync(p, "utf8"));
-            const rep = (d) => {
-              if(!d) return;
-              for(let k in d) {
-                if(["react-native-tele","react-native-sip2","react-native-replace-dialer"].includes(k)) d[k] = "file:../" + k;
-                else if(typeof d[k]==="string" && d[k].includes("github.com")) {
-                  if(k.includes("tele")) d[k] = "file:../react-native-tele";
-                  if(k.includes("sip2")) d[k] = "file:../react-native-sip2";
-                  if(k.includes("dialer")) d[k] = "file:../react-native-replace-dialer";
-                }
-                if(k==="react-native") d[k] = "0.68.2";
-                if(k==="react") d[k] = "17.0.2";
-              }
-            };
-            rep(pkg.dependencies); rep(pkg.devDependencies); rep(pkg.peerDependencies);
-            fs.writeFileSync(p, JSON.stringify(pkg, null, 2));
-          };
-          ["telon-gateway-app/package.json","react-native-tele/package.json","react-native-sip2/package.json","react-native-replace-dialer/package.json"].forEach(fixDeps);
-          '
-
-      - name: 5. Cài đặt thư viện
-        run: |
-          cd telon-gateway-app
-          rm -rf node_modules yarn.lock package-lock.json
-          yarn install --ignore-engines
-
-      - name: 6. Tiêm thuốc mê iOS
-        run: |
-          cd telon-gateway-app
-          echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
-
-      - name: 7. Nâng cấp Gradle & Tiêm Namespace cho AGP 8.0
+- name: 7. Nâng cấp Gradle & Tiêm Namespace Tuyệt Đối (Node.js)
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
@@ -79,22 +7,49 @@ jobs:
           echo "include ':sip2-android-core'" >> settings.gradle
           echo "project(':sip2-android-core').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sip2/android/sip2-android-core')" >> settings.gradle
           
-          # TUYỆT KỸ MỚI: Tự động lùng sục và vá lỗ hổng Namespace cho tất cả các thư viện đồ cổ
-          find ../node_modules -type f -name "AndroidManifest.xml" | while read manifest; do
-            pkg=$(grep -oP 'package="\K[^"]+' "$manifest" | head -1)
-            if [ ! -z "$pkg" ]; then
-              gradle_file=$(echo "$manifest" | sed 's|/src/main/AndroidManifest.xml|/build.gradle|')
-              if [ -f "$gradle_file" ] && ! grep -q "namespace" "$gradle_file"; then
-                sed -i "s/android *{/android {\n    namespace '$pkg'/g" "$gradle_file"
-              fi
-            fi
-          done
+          # TUYỆT KỸ VÁ LỖ HỔNG: Dùng Node.js xuyên thủng rào cản Symlink, tiêm trực tiếp Namespace
+          node -e '
+          const fs = require("fs");
+          const path = require("path");
+          
+          // Đi thẳng ra ngoài thư mục gốc để quét
+          const dirs = ["../../react-native-tele", "../../react-native-sip2", "../../react-native-replace-dialer"];
+          
+          function walk(dir) {
+              let results = [];
+              if (!fs.existsSync(dir)) return results;
+              const list = fs.readdirSync(dir);
+              list.forEach(file => {
+                  file = path.join(dir, file);
+                  const stat = fs.statSync(file);
+                  if (stat && stat.isDirectory()) results = results.concat(walk(file));
+                  else results.push(file);
+              });
+              return results;
+          }
+          
+          dirs.forEach(dir => {
+              walk(dir).forEach(file => {
+                  if (file.endsWith("AndroidManifest.xml")) {
+                      const manifest = fs.readFileSync(file, "utf8");
+                      const match = manifest.match(/package="([^"]+)"/);
+                      if (match) {
+                          const pkg = match[1];
+                          const gradleFile = file.replace(/src\/main\/AndroidManifest\.xml$/, "build.gradle");
+                          if (fs.existsSync(gradleFile)) {
+                              let gradle = fs.readFileSync(gradleFile, "utf8");
+                              if (!gradle.includes("namespace")) {
+                                  // Tiêm namespace vào ngay dưới thẻ android {
+                                  gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '\''" + pkg + "'\''");
+                                  fs.writeFileSync(gradleFile, gradle);
+                                  console.log("Đã vá xong Namespace cho: " + pkg);
+                              }
+                          }
+                      }
+                  }
+              });
+          });
+          '
           
           chmod +x gradlew
           ./gradlew assembleDebug
-
-      - name: 8. Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug-apk
-          path: telon-gateway-app/android/app/build/outputs/apk/debug/app-debug.apk
