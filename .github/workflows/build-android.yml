@@ -11,11 +11,25 @@ jobs:
       - name: 1. Lấy mã nguồn chính
         uses: actions/checkout@v4
 
-      - name: 1.1 Tải các module vệ tinh (Local Folders)
+      - name: 1.1 Tải các module vệ tinh
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
           git clone https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
+
+      - name: 1.2 Tự động vá lỗi cú pháp JSON của tác giả gốc
+        run: |
+          # Dùng Python để tự động dò và điền dấu phẩy (,) bị thiếu trong các file package.json cũ
+          python3 -c '
+          import re, glob
+          for file in glob.glob("react-native-*/package.json"):
+              with open(file, "r") as f:
+                  data = f.read()
+              # Regex dò các thuộc tính nằm trên 2 dòng nhưng thiếu dấu phẩy và tự động bù vào
+              data = re.sub(r"([\x22\]\}\d]|true|false|null)\s*\n\s*(\x22)", r"\1,\n\2", data)
+              with open(file, "w") as f:
+                  f.write(data)
+          '
 
       - name: 2. Thiết lập Node.js
         uses: actions/setup-node@v4
@@ -33,18 +47,16 @@ jobs:
           cd telon-gateway-app
           rm -f yarn.lock package-lock.json
           
-          # Dùng công cụ jq chuyên dụng để sửa file package.json an toàn
-          # Chuyển hướng 3 module bị lỗi sang dùng thư mục đã tải sẵn ở bước 1.1
-          jq '.dependencies |= with_entries(
-            if (.value | type == "string") and (.value | contains("react-native-tele")) then .value = "file:../react-native-tele"
-            elif (.value | type == "string") and (.value | contains("react-native-sip2")) then .value = "file:../react-native-sip2"
-            elif (.value | type == "string") and (.value | contains("react-native-replace-dialer")) then .value = "file:../react-native-replace-dialer"
+          # Chuyển hướng cài đặt sang các thư mục đã được vá lỗi JSON
+          jq ".dependencies |= with_entries(
+            if (.value | type == \"string\") and (.value | contains(\"react-native-tele\")) then .value = \"file:../react-native-tele\"
+            elif (.value | type == \"string\") and (.value | contains(\"react-native-sip2\")) then .value = \"file:../react-native-sip2\"
+            elif (.value | type == \"string\") and (.value | contains(\"react-native-replace-dialer\")) then .value = \"file:../react-native-replace-dialer\"
             else . end
-          )' package.json > package.tmp.json
+          )" package.json > package.tmp.json
           
           mv package.tmp.json package.json
           
-          # Tiến hành cài đặt (Lần này Yarn sẽ chỉ đọc file trên ổ cứng, không cần lên mạng lấy 3 module kia)
           yarn install
 
       - name: 5. Phân quyền thực thi cho Gradle
