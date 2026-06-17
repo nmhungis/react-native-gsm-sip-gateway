@@ -20,7 +20,7 @@ jobs:
       - name: 3. Thiết lập Node 18 & Java 11
         uses: actions/setup-node@v4
         with:
-          node-version: '18' # NÂNG LÊN NODE 18 Ở ĐÂY
+          node-version: '18'
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -80,17 +80,22 @@ jobs:
         run: |
           cd telon-gateway-app
           rm -rf node_modules yarn.lock package-lock.json
-          # Thêm cờ --ignore-engines để dập tắt mọi tiếng khóc về phiên bản Node
           yarn install --ignore-engines
 
-      - name: 6. Hạ cấp Gradle & Biên dịch APK
+      - name: 6. TUYỆT KỸ: "Tiêm thuốc mê" iOS (Chống Crash CLI)
+        run: |
+          cd telon-gateway-app
+          # Ghi đè module quét iOS thành một hàm rỗng để chặn đứng lỗi TypeError
+          echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
+
+      - name: 7. Hạ cấp Gradle & Biên dịch APK
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-7.4.2-all.zip/g" gradle/wrapper/gradle-wrapper.properties
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: 7. Upload Artifact
+      - name: 8. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
