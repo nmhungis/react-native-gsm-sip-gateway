@@ -10,10 +10,9 @@ jobs:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2. Clone Modules (Kéo bằng được lõi ngầm)
+      - name: 2. Clone Modules
         run: |
           git clone https://github.com/telon-org/react-native-tele.git
-          # BẮT BUỘC dùng --recursive để kéo toàn bộ submodule ẩn bên trong SIP2
           git clone --recursive https://github.com/telon-org/react-native-sip2.git
           git clone https://github.com/telon-org/react-native-replace-dialer.git
 
@@ -71,14 +70,25 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: 7. Nâng cấp Gradle & Nối cầu cho SIP Core
+      - name: 7. Nâng cấp Gradle & Tiêm Namespace cho AGP 8.0
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
           
-          # TUYỆT KỸ: Ghi đè vào Settings.gradle để ép Gradle nhận diện lõi sip2-android-core
+          # Nối cầu cho module ngầm của SIP2
           echo "include ':sip2-android-core'" >> settings.gradle
           echo "project(':sip2-android-core').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sip2/android/sip2-android-core')" >> settings.gradle
+          
+          # TUYỆT KỸ MỚI: Tự động lùng sục và vá lỗ hổng Namespace cho tất cả các thư viện đồ cổ
+          find ../node_modules -type f -name "AndroidManifest.xml" | while read manifest; do
+            pkg=$(grep -oP 'package="\K[^"]+' "$manifest" | head -1)
+            if [ ! -z "$pkg" ]; then
+              gradle_file=$(echo "$manifest" | sed 's|/src/main/AndroidManifest.xml|/build.gradle|')
+              if [ -f "$gradle_file" ] && ! grep -q "namespace" "$gradle_file"; then
+                sed -i "s/android *{/android {\n    namespace '$pkg'/g" "$gradle_file"
+              fi
+            fi
+          done
           
           chmod +x gradlew
           ./gradlew assembleDebug
