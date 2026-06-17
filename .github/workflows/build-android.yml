@@ -19,35 +19,32 @@ jobs:
 
       - name: 1.2 Tự động vá lỗi cú pháp JSON của tác giả gốc
         run: |
-          # Dùng Python để tự động dò và điền dấu phẩy (,) bị thiếu trong các file package.json cũ
           python3 -c '
           import re, glob
           for file in glob.glob("react-native-*/package.json"):
               with open(file, "r") as f:
                   data = f.read()
-              # Regex dò các thuộc tính nằm trên 2 dòng nhưng thiếu dấu phẩy và tự động bù vào
               data = re.sub(r"([\x22\]\}\d]|true|false|null)\s*\n\s*(\x22)", r"\1,\n\2", data)
               with open(file, "w") as f:
                   f.write(data)
           '
 
-      - name: 2. Thiết lập Node.js
+      - name: 2. Thiết lập Node.js (Nâng cấp lên 18)
         uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '18' # <-- Đã sửa lỗi phiên bản ở đây
 
-      - name: 3. Thiết lập Java (JDK 11)
+      - name: 3. Thiết lập Java (Nâng cấp lên JDK 17)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '11'
+          java-version: '17' # <-- RN 0.80 yêu cầu Java 17
 
       - name: 4. Cài đặt thư viện bằng Yarn (Link Local)
         run: |
           cd telon-gateway-app
           rm -f yarn.lock package-lock.json
           
-          # Chuyển hướng cài đặt sang các thư mục đã được vá lỗi JSON
           jq ".dependencies |= with_entries(
             if (.value | type == \"string\") and (.value | contains(\"react-native-tele\")) then .value = \"file:../react-native-tele\"
             elif (.value | type == \"string\") and (.value | contains(\"react-native-sip2\")) then .value = \"file:../react-native-sip2\"
