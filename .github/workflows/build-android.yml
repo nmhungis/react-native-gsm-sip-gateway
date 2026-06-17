@@ -10,7 +10,7 @@ jobs:
       - name: "1. Checkout Code"
         uses: actions/checkout@v4
 
-      - name: "2. Clone Modules (Ép vượt rào SSH)"
+      - name: "2. Clone Modules"
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
@@ -77,7 +77,6 @@ jobs:
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
-          
           echo "include ':sip2-android-core'" >> settings.gradle
           echo "project(':sip2-android-core').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-sip2/android/sip2-android-core')" >> settings.gradle
           
@@ -93,19 +92,14 @@ jobs:
           ];
           
           dirs.forEach(androidDir => {
-              if (!fs.existsSync(androidDir)) {
-                  fs.mkdirSync(androidDir, {recursive: true});
-              }
-              
+              if (!fs.existsSync(androidDir)) fs.mkdirSync(androidDir, {recursive: true});
               let gradleFile = path.join(androidDir, "build.gradle");
               let pkgName = "one.telefon." + path.basename(path.dirname(androidDir)).replace(/[^a-zA-Z0-9]/g, "");
               if (androidDir.includes("sip2-android-core")) pkgName = "one.telefon.sip2.core";
               
               let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
-              
               if (fs.existsSync(manifestPath)) {
-                  let manifest = fs.readFileSync(manifestPath, "utf8");
-                  let m = manifest.match(/package="([^"]+)"/);
+                  let m = fs.readFileSync(manifestPath, "utf8").match(/package="([^"]+)"/);
                   if (m) pkgName = m[1];
               } else {
                   fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
@@ -113,57 +107,31 @@ jobs:
               }
               
               if (!fs.existsSync(gradleFile)) {
-                  let content = "apply plugin: 'com.android.library'\n" +
-                  "android {\n" +
-                  "    namespace '" + pkgName + "'\n" +
-                  "    compileSdkVersion 34\n" +
-                  "    defaultConfig {\n" +
-                  "        minSdkVersion 21\n" +
-                  "        targetSdkVersion 34\n" +
-                  "    }\n" +
-                  "}\n" +
-                  "dependencies {\n" +
-                  "    implementation 'com.facebook.react:react-native:+'\n" +
-                  "}\n";
-                  fs.writeFileSync(gradleFile, content);
+                  fs.writeFileSync(gradleFile, "apply plugin: 'com.android.library'\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }\n}\ndependencies {\n    implementation 'com.facebook.react:react-native:+'\n}\n");
               } else {
                   let gradle = fs.readFileSync(gradleFile, "utf8");
-                  
-                  if (gradle.includes("android-library") && !gradle.includes("com.android.library")) {
-                      gradle = gradle.replace(/apply\s+plugin:\s*['"]android-library['"]/g, "apply plugin: 'com.android.library'");
-                  } else if (!gradle.includes("com.android.library") && !gradle.includes("com.android.application")) {
-                      gradle = "apply plugin: 'com.android.library'\n" + gradle;
-                  }
+                  if (gradle.includes("android-library") && !gradle.includes("com.android.library")) gradle = gradle.replace(/apply\s+plugin:\s*['"]android-library['"]/g, "apply plugin: 'com.android.library'");
+                  else if (!gradle.includes("com.android.library") && !gradle.includes("com.android.application")) gradle = "apply plugin: 'com.android.library'\n" + gradle;
 
                   if (!gradle.includes("namespace")) {
-                      if (gradle.includes("android {")) {
-                          gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkgName + "'");
-                      } else {
-                          gradle += "\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n}\n";
-                      }
+                      if (gradle.includes("android {")) gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkgName + "'");
+                      else gradle += "\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n}\n";
                   }
-
-                  gradle = gradle.replace(/\bcompile\s+/g, "implementation ");
-                  gradle = gradle.replace(/\bcompile\(/g, "implementation(");
-                  
-                  gradle = gradle.replace(/compileSdkVersion\s+\d+/g, "compileSdkVersion 34");
-                  gradle = gradle.replace(/targetSdkVersion\s+\d+/g, "targetSdkVersion 34");
-                  gradle = gradle.replace(/buildToolsVersion\s+['"][^'"]+['"]/g, "");
-
+                  gradle = gradle.replace(/\bcompile\s+/g, "implementation ").replace(/\bcompile\(/g, "implementation(");
+                  gradle = gradle.replace(/compileSdkVersion\s+\d+/g, "compileSdkVersion 34").replace(/targetSdkVersion\s+\d+/g, "targetSdkVersion 34").replace(/buildToolsVersion\s+['"][^'"]+['"]/g, "");
                   fs.writeFileSync(gradleFile, gradle);
               }
           });
           EOF
           node fix_agp.js
 
-      - name: "8. Fix Security & Fake Missing Java Classes"
+      - name: "8. CHUẨN ĐOÁN VÀ VÁ TẬN GỐC MÃ NGUỒN"
         run: |
           cd telon-gateway-app/android
-          cat << 'EOF' > fix_manifests.js
+          cat << 'EOF' > fix_java.js
           const fs = require("fs");
           const path = require("path");
 
-          // 1. Chèn cờ bảo mật Android 12
           function walk(dir) {
               let results = [];
               if (!fs.existsSync(dir)) return results;
@@ -173,46 +141,56 @@ jobs:
                   const stat = fs.statSync(file);
                   if (stat && stat.isDirectory() && !file.includes("build") && !file.includes(".git")) {
                       results = results.concat(walk(file));
-                  } else if (file.endsWith("AndroidManifest.xml")) {
-                      results.push(file);
-                  }
+                  } else results.push(file);
               });
               return results;
           }
 
-          const manifests = walk(".").concat(walk("../node_modules"));
-          manifests.forEach(file => {
-              let content = fs.readFileSync(file, "utf8");
-              let changed = false;
-              content = content.replace(/<(activity|activity-alias|service|receiver)([^>]*)>/gi, (match, tag, attrs) => {
-                  if (!attrs.includes("android:exported")) {
-                      changed = true;
-                      return "<" + tag + ' android:exported="true"' + attrs + ">";
-                  }
-                  return match;
-              });
-              if (changed) fs.writeFileSync(file, content);
-          });
+          const files = walk(".").concat(walk("../node_modules"));
           
-          let appGradle = "app/build.gradle";
-          if (fs.existsSync(appGradle)) {
-              let gradle = fs.readFileSync(appGradle, "utf8");
-              if (!gradle.includes("namespace ")) {
-                  gradle = gradle.replace(/android\s*\{/, "android {\n    namespace 'one.telefon.gateway'");
-                  fs.writeFileSync(appGradle, gradle);
+          // 1. Chèn cờ bảo mật Android 12
+          files.forEach(file => {
+              if (file.endsWith("AndroidManifest.xml")) {
+                  let content = fs.readFileSync(file, "utf8");
+                  let changed = false;
+                  content = content.replace(/<(activity|activity-alias|service|receiver)([^>]*)>/gi, (match, tag, attrs) => {
+                      if (!attrs.includes("android:exported")) {
+                          changed = true;
+                          return "<" + tag + ' android:exported="true"' + attrs + ">";
+                      }
+                      return match;
+                  });
+                  if (changed) fs.writeFileSync(file, content);
               }
-          }
+          });
 
-          // 2. Tuyệt kỹ: Tự động đẻ file Java giả mạo bị tác giả bỏ quên
+          // 2. VÁ LỖI CỐT LÕI: Đổi tên miền thư mục và fix Enum Java
+          files.forEach(file => {
+              if (file.endsWith(".java")) {
+                  let content = fs.readFileSync(file, "utf8");
+                  let changed = false;
+
+                  // Vá lỗi đổi domain: org.telon -> one.telefon
+                  if (content.includes("org.telon.sip2")) {
+                      content = content.replace(/org\.telon\.sip2/g, "one.telefon.sip2");
+                      changed = true;
+                  }
+
+                  // Vá lỗi Enum của Java bị sai cú pháp constructor
+                  if (content.includes("throw new IllegalArgumentException")) {
+                      content = content.replace(/throw new IllegalArgumentException\("No enum " \+ (.+?)\.class \+ " with value " \+ swigValue\);/g, 
+                      'throw new IllegalArgumentException();');
+                      changed = true;
+                  }
+
+                  if (changed) fs.writeFileSync(file, content);
+              }
+          });
+
+          // 3. Đẻ file Java giả mạo cho các PJSIP class bị tác giả bỏ quên
           const pjsuaDir = "../node_modules/react-native-sip2/android/src/main/java/org/pjsip/pjsua2";
           if (fs.existsSync(pjsuaDir)) {
-              let stdTypes = new Set([
-                  "String", "Exception", "Object", "Class", "System", "Runtime", "Thread", 
-                  "Override", "SuppressWarnings", "Math", "Integer", "Long", "Boolean", 
-                  "Double", "Float", "Short", "Byte", "Character", "CharSequence", "Vector",
-                  "List", "ArrayList", "Map", "HashMap", "Set", "HashSet", "Iterator",
-                  "java", "lang", "util", "org", "pjsip", "pjsua2"
-              ]);
+              let stdTypes = new Set(["String", "Exception", "Object", "Class", "System", "Runtime", "Thread", "Override", "SuppressWarnings", "Math", "Integer", "Long", "Boolean", "Double", "Float", "Short", "Byte", "Character", "CharSequence", "Vector", "List", "ArrayList", "Map", "HashMap", "Set", "HashSet", "Iterator", "java", "lang", "util", "org", "pjsip", "pjsua2"]);
               let allWords = new Set();
               fs.readdirSync(pjsuaDir).forEach(file => {
                   if (file.endsWith(".java")) {
@@ -227,14 +205,13 @@ jobs:
                       let fpath = path.join(pjsuaDir, w + ".java");
                       if (!fs.existsSync(fpath)) {
                           let ext = w.endsWith("Exception") ? " extends java.lang.Exception" : "";
-                          fs.writeFileSync(fpath, `package org.pjsip.pjsua2;\npublic class ${w}${ext} {\n  public ${w}(long cPtr, boolean cMemoryOwn) {}\n  public ${w}() {}\n  public static long getCPtr(${w} obj) { return 0; }\n}\n`);
-                          console.log("Đã cấp cứu file bị mất: " + w + ".java");
+                          fs.writeFileSync(fpath, `package org.pjsip.pjsua2;\npublic class ${w}${ext} {\n  public ${w}(long cPtr, boolean cMemoryOwn) {}\n  public ${w}() {}\n  public static long getCPtr(${w} obj) { return 0; }\n  public int swigValue() { return 0; }\n  public static ${w} swigToEnum(int v) { return new ${w}(); }\n}\n`);
                       }
                   }
               });
           }
           EOF
-          node fix_manifests.js
+          node fix_java.js
           
           echo "android.defaults.buildfeatures.buildconfig=true" >> gradle.properties
           echo "android.nonTransitiveRClass=false" >> gradle.properties
