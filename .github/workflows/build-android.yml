@@ -73,7 +73,7 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: "7. BÀN TAY SẮT: Gán cứng Namespace (Chữa dứt điểm PackageList)"
+      - name: "7. Force AGP 8.6 Standards"
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
@@ -85,7 +85,6 @@ jobs:
           const fs = require("fs");
           const path = require("path");
           
-          // Gán cứng tên chuẩn để React Native tự động gọi đúng!
           const moduleMap = {
               "../node_modules/react-native-tele/android": "one.telefon.tele",
               "../node_modules/react-native-sip2/android": "one.telefon.sip2",
@@ -100,11 +99,9 @@ jobs:
               let gradleFile = path.join(androidDir, "build.gradle");
               let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
               
-              // Ép đè Manifest
               if (!fs.existsSync(path.dirname(manifestPath))) fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
               fs.writeFileSync(manifestPath, '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="' + pkgName + '"></manifest>');
               
-              // Ép đè Gradle
               if (!fs.existsSync(gradleFile)) {
                   fs.writeFileSync(gradleFile, "apply plugin: 'com.android.library'\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }\n}\ndependencies {\n    implementation 'com.facebook.react:react-native:+'\n}\n");
               } else {
@@ -218,6 +215,52 @@ jobs:
                   }
               });
           }
+
+          // ===== TUYỆT KỸ PROXY: ĐẺ CLASS THẾ THÂN CHO PACKAGELIST =====
+          const proxies = {
+              "ReplaceDialerModulePackage": "one.telefon.replacedialer",
+              "TeleModulePackage": "one.telefon.tele",
+              "PjSipModulePackage": "one.telefon.sip2.core"
+          };
+
+          function findClassPackage(className) {
+              let result = null;
+              function walkFind(dir) {
+                  if (result) return;
+                  if (!fs.existsSync(dir)) return;
+                  const list = fs.readdirSync(dir);
+                  for (let file of list) {
+                      let fullPath = path.join(dir, file);
+                      let stat = fs.statSync(fullPath);
+                      if (stat && stat.isDirectory() && !file.includes("build") && !file.includes(".git")) {
+                          walkFind(fullPath);
+                      } else if (file.endsWith(className + ".java")) {
+                          let content = fs.readFileSync(fullPath, "utf8");
+                          let m = content.match(/package\s+([a-zA-Z0-9_.]+)\s*;/);
+                          if (m) result = m[1];
+                      }
+                  }
+              }
+              walkFind("../node_modules/react-native-tele/android");
+              walkFind("../node_modules/react-native-sip2/android");
+              walkFind("../node_modules/react-native-replace-dialer/android");
+              return result;
+          }
+
+          for (let className in proxies) {
+              let expectedPackage = proxies[className];
+              let realPackage = findClassPackage(className);
+
+              if (realPackage && realPackage !== expectedPackage) {
+                  console.log("TAO PROXY CLASS: " + className + " (" + realPackage + " -> " + expectedPackage + ")");
+                  let proxyDir = path.join("app/src/main/java", ...expectedPackage.split("."));
+                  fs.mkdirSync(proxyDir, {recursive: true});
+                  // Class giả thừa kế 100% Class thật
+                  let proxyContent = "package " + expectedPackage + ";\npublic class " + className + " extends " + realPackage + "." + className + " {}\n";
+                  fs.writeFileSync(path.join(proxyDir, className + ".java"), proxyContent);
+              }
+          }
+          // =============================================================
           EOF
           node fix_java.js
           
