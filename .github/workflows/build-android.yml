@@ -73,7 +73,7 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: "7. Force AGP 8.6 Standards (TON TRONG MA NGUON GOC)"
+      - name: "7. BÀN TAY SẮT: Gán cứng Namespace (Chữa dứt điểm PackageList)"
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
@@ -85,25 +85,26 @@ jobs:
           const fs = require("fs");
           const path = require("path");
           
-          const dirs = [
-              "../node_modules/react-native-tele/android", 
-              "../node_modules/react-native-sip2/android", 
-              "../node_modules/react-native-sip2/android/sip2-android-core",
-              "../node_modules/react-native-replace-dialer/android"
-          ];
+          // Gán cứng tên chuẩn để React Native tự động gọi đúng!
+          const moduleMap = {
+              "../node_modules/react-native-tele/android": "one.telefon.tele",
+              "../node_modules/react-native-sip2/android": "one.telefon.sip2",
+              "../node_modules/react-native-sip2/android/sip2-android-core": "one.telefon.sip2.core",
+              "../node_modules/react-native-replace-dialer/android": "one.telefon.replacedialer"
+          };
           
-          dirs.forEach(androidDir => {
+          for (let androidDir in moduleMap) {
+              let pkgName = moduleMap[androidDir];
               if (!fs.existsSync(androidDir)) fs.mkdirSync(androidDir, {recursive: true});
+              
               let gradleFile = path.join(androidDir, "build.gradle");
               let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
               
-              let pkgName = "";
-              if (fs.existsSync(manifestPath)) {
-                  let m = fs.readFileSync(manifestPath, "utf8").match(/package="([^"]+)"/);
-                  if (m) pkgName = m[1];
-              }
-              if (!pkgName) return; // Bỏ qua nếu không có manifest để tránh rác code
+              // Ép đè Manifest
+              if (!fs.existsSync(path.dirname(manifestPath))) fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
+              fs.writeFileSync(manifestPath, '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="' + pkgName + '"></manifest>');
               
+              // Ép đè Gradle
               if (!fs.existsSync(gradleFile)) {
                   fs.writeFileSync(gradleFile, "apply plugin: 'com.android.library'\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }\n}\ndependencies {\n    implementation 'com.facebook.react:react-native:+'\n}\n");
               } else {
@@ -115,7 +116,6 @@ jobs:
                       if (gradle.includes("android {")) gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkgName + "'");
                       else gradle += "\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n}\n";
                   } else {
-                      // Cập nhật lại namespace cho khớp 100% với Manifest
                       gradle = gradle.replace(/namespace\s+['"][^'"]+['"]/, "namespace '" + pkgName + "'");
                   }
                   
@@ -123,7 +123,7 @@ jobs:
                   gradle = gradle.replace(/compileSdkVersion\s+\d+/g, "compileSdkVersion 34").replace(/targetSdkVersion\s+\d+/g, "targetSdkVersion 34").replace(/buildToolsVersion\s+['"][^'"]+['"]/g, "");
                   fs.writeFileSync(gradleFile, gradle);
               }
-          });
+          }
           EOF
           node fix_agp.js
 
