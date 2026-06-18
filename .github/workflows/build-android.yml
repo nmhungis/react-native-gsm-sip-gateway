@@ -73,7 +73,7 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: "7. ĐỒNG BỘ CHÂN LÝ MÃ NGUỒN & AGP 8.6"
+      - name: "7. Force AGP 8.6 Standards (SỬ DỤNG LẠI BẢN ĐÃ CHẠY THÀNH CÔNG)"
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
@@ -86,73 +86,53 @@ jobs:
           const path = require("path");
           
           const dirs = [
-              "../node_modules/react-native-tele", 
-              "../node_modules/react-native-sip2", 
+              "../node_modules/react-native-tele/android", 
+              "../node_modules/react-native-sip2/android", 
               "../node_modules/react-native-sip2/android/sip2-android-core",
-              "../node_modules/react-native-replace-dialer"
+              "../node_modules/react-native-replace-dialer/android"
           ];
           
-          dirs.forEach(modDir => {
-              let androidDir = modDir;
-              if (!modDir.includes("sip2-android-core")) androidDir = path.join(modDir, "android");
+          dirs.forEach(androidDir => {
               if (!fs.existsSync(androidDir)) fs.mkdirSync(androidDir, {recursive: true});
               
-              let truePkg = null;
-              let reactClass = null;
-              function findTruth(dir) {
-                  if (!fs.existsSync(dir)) return;
-                  let files = fs.readdirSync(dir);
-                  for (let f of files) {
-                      let full = path.join(dir, f);
-                      if (fs.statSync(full).isDirectory() && !f.includes("build")) findTruth(full);
-                      else if (f.endsWith(".java")) {
-                          let text = fs.readFileSync(full, "utf8");
-                          let matchPkg = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/);
-                          if (text.includes("implements ReactPackage") || text.includes("implements com.facebook.react.ReactPackage") || text.includes("extends TurboReactPackage") || f.includes("ModulePackage")) {
-                              if (matchPkg) truePkg = matchPkg[1];
-                              let matchCls = text.match(/class\s+([a-zA-Z0-9_]+)\s+(implements|extends)/);
-                              if (matchCls) reactClass = matchCls[1];
-                              else reactClass = f.replace(".java", "");
-                          }
-                          if (!truePkg && matchPkg) truePkg = matchPkg[1];
-                      }
-                  }
-              }
-              findTruth(path.join(androidDir, "src", "main", "java"));
-              
-              if (!truePkg) {
-                  truePkg = "one.telefon." + path.basename(modDir).replace(/[^a-zA-Z0-9]/g, "");
-                  if (modDir.includes("sip2-android-core")) truePkg = "one.telefon.sip2.core";
-              }
+              let gradleFile = path.join(androidDir, "build.gradle");
+              let pkgName = "one.telefon." + path.basename(path.dirname(androidDir)).replace(/[^a-zA-Z0-9]/g, "");
+              if (androidDir.includes("sip2-android-core")) pkgName = "one.telefon.sip2.core";
               
               let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
-              if (!fs.existsSync(path.dirname(manifestPath))) fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
-              fs.writeFileSync(manifestPath, '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="' + truePkg + '"></manifest>');
+              if (fs.existsSync(manifestPath)) {
+                  let m = fs.readFileSync(manifestPath, "utf8").match(/package="([^"]+)"/);
+                  if (m) pkgName = m[1];
+              } else {
+                  fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
+                  fs.writeFileSync(manifestPath, '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="' + pkgName + '"></manifest>');
+              }
               
-              let gradleFile = path.join(androidDir, "build.gradle");
               if (!fs.existsSync(gradleFile)) {
-                  fs.writeFileSync(gradleFile, "apply plugin: 'com.android.library'\nandroid {\n    namespace '" + truePkg + "'\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }\n}\ndependencies {\n    implementation 'com.facebook.react:react-native:+'\n}\n");
+                  fs.writeFileSync(gradleFile, "apply plugin: 'com.android.library'\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }\n}\ndependencies {\n    implementation 'com.facebook.react:react-native:+'\n}\n");
               } else {
                   let gradle = fs.readFileSync(gradleFile, "utf8");
                   if (gradle.includes("android-library") && !gradle.includes("com.android.library")) gradle = gradle.replace(/apply\s+plugin:\s*['"]android-library['"]/g, "apply plugin: 'com.android.library'");
                   else if (!gradle.includes("com.android.library") && !gradle.includes("com.android.application")) gradle = "apply plugin: 'com.android.library'\n" + gradle;
 
-                  // CÀN QUÉT: Xóa sạch khai báo cũ
-                  gradle = gradle.replace(/compileSdkVersion[^\n]*/g, "");
-                  gradle = gradle.replace(/targetSdkVersion[^\n]*/g, "");
-                  gradle = gradle.replace(/buildToolsVersion[^\n]*/g, "");
-                  gradle = gradle.replace(/namespace[^\n]*/g, "");
-
-                  // BƠM MÁU: Nạp trực tiếp vào thẻ android
-                  gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + truePkg + "'\n    compileSdkVersion 34\n    defaultConfig {\n        targetSdkVersion 34\n    }\n");
+                  if (!gradle.includes("namespace")) {
+                      if (gradle.includes("android {")) gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkgName + "'");
+                      else gradle += "\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n}\n";
+                  } else {
+                      gradle = gradle.replace(/namespace\s+['"][^'"]+['"]/, "namespace '" + pkgName + "'");
+                  }
+                  
+                  // CHỐT CHẶN AN TOÀN TUYỆT ĐỐI CHO SDK: Không bao giờ được làm mất compileSdkVersion
+                  gradle = gradle.replace(/compileSdkVersion.*/g, "compileSdkVersion 34");
+                  gradle = gradle.replace(/targetSdkVersion.*/g, "targetSdkVersion 34");
+                  gradle = gradle.replace(/buildToolsVersion.*/g, "");
+                  
+                  if (!gradle.includes("compileSdkVersion 34")) {
+                      gradle = gradle.replace(/android\s*\{/, "android {\n    compileSdkVersion 34\n");
+                  }
                   
                   gradle = gradle.replace(/\bcompile\s+/g, "implementation ").replace(/\bcompile\(/g, "implementation(");
                   fs.writeFileSync(gradleFile, gradle);
-              }
-              
-              if (reactClass && !modDir.includes("sip2-android-core")) {
-                  let configCode = `module.exports = { dependency: { platforms: { android: { packageImportPath: "import ${truePkg}.${reactClass};", packageInstance: "new ${reactClass}()" } } } };`;
-                  fs.writeFileSync(path.join(modDir, "react-native.config.js"), configCode);
               }
           });
           EOF
@@ -201,8 +181,8 @@ jobs:
                   let content = fs.readFileSync(file, "utf8");
                   let changed = false;
 
-                  if (content.includes("import org.telon.sip2")) {
-                      content = content.replace(/import org\.telon\.sip2/g, "import one.telefon.sip2");
+                  if (content.includes("org.telon.sip2")) {
+                      content = content.replace(/org\.telon\.sip2/g, "one.telefon.sip2");
                       changed = true;
                   }
                   if (content.includes("throw new IllegalArgumentException")) {
@@ -227,6 +207,7 @@ jobs:
               }
           }
 
+          // Cứu các class C++ bị tác giả xóa mất
           const pjsuaDir = "../node_modules/react-native-sip2/android/src/main/java/org/pjsip/pjsua2";
           if (fs.existsSync(pjsuaDir)) {
               let stdTypes = new Set(["String", "Exception", "RuntimeException", "IllegalArgumentException", "UnsupportedOperationException", "Object", "Class", "System", "Runtime", "Thread", "Override", "SuppressWarnings", "Math", "Integer", "Long", "Boolean", "Double", "Float", "Short", "Byte", "Character", "CharSequence", "Vector", "List", "ArrayList", "Map", "HashMap", "Set", "HashSet", "Iterator", "java", "lang", "util", "org", "pjsip", "pjsua2"]);
@@ -249,6 +230,53 @@ jobs:
                   }
               });
           }
+
+          // ===== TUYỆT KỸ PROXY: ĐẺ CLASS THẾ THÂN CHO PACKAGELIST =====
+          // React Native ngu ngốc đòi 3 class này ở 3 thư mục không tồn tại. Mình đẻ ra để dỗ nó!
+          const proxies = {
+              "ReplaceDialerModulePackage": "one.telefon.replacedialer",
+              "TeleModulePackage": "one.telefon.tele",
+              "PjSipModulePackage": "one.telefon.android"
+          };
+
+          function findClassPackage(className) {
+              let result = null;
+              function walkFind(dir) {
+                  if (result) return;
+                  if (!fs.existsSync(dir)) return;
+                  const list = fs.readdirSync(dir);
+                  for (let file of list) {
+                      let fullPath = path.join(dir, file);
+                      let stat = fs.statSync(fullPath);
+                      if (stat && stat.isDirectory() && !file.includes("build") && !file.includes(".git")) {
+                          walkFind(fullPath);
+                      } else if (file.endsWith(className + ".java")) {
+                          let content = fs.readFileSync(fullPath, "utf8");
+                          let m = content.match(/package\s+([a-zA-Z0-9_.]+)\s*;/);
+                          if (m) result = m[1];
+                      }
+                  }
+              }
+              walkFind("../node_modules/react-native-tele/android");
+              walkFind("../node_modules/react-native-sip2/android");
+              walkFind("../node_modules/react-native-replace-dialer/android");
+              return result;
+          }
+
+          for (let className in proxies) {
+              let expectedPackage = proxies[className];
+              let realPackage = findClassPackage(className);
+
+              if (realPackage && realPackage !== expectedPackage) {
+                  console.log("TAO PROXY CLASS: " + className + " (" + realPackage + " -> " + expectedPackage + ")");
+                  let proxyDir = path.join("app/src/main/java", ...expectedPackage.split("."));
+                  fs.mkdirSync(proxyDir, {recursive: true});
+                  // Class giả thừa kế 100% sức mạnh của Class thật
+                  let proxyContent = "package " + expectedPackage + ";\npublic class " + className + " extends " + realPackage + "." + className + " {}\n";
+                  fs.writeFileSync(path.join(proxyDir, className + ".java"), proxyContent);
+              }
+          }
+          // =============================================================
           EOF
           node fix_java.js
           
