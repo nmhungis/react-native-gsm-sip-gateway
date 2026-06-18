@@ -98,11 +98,9 @@ jobs:
               let gradleFile = path.join(androidDir, "build.gradle");
               let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
               
-              // Đọc tên thật từ file Manifest của tác giả
               let pkgName = null;
               if (fs.existsSync(manifestPath)) {
-                  let content = fs.readFileSync(manifestPath, "utf8");
-                  let m = content.match(/package="([^"]+)"/);
+                  let m = fs.readFileSync(manifestPath, "utf8").match(/package="([^"]+)"/);
                   if (m) pkgName = m[1];
               }
               
@@ -135,7 +133,7 @@ jobs:
           EOF
           node fix_agp.js
 
-      - name: "8. CHUẨN ĐOÁN VÀ VÁ TẬN GỐC MÃ NGUỒN"
+      - name: "8. CHUẨN ĐOÁN & VÁ TẬN GỐC MÃ NGUỒN"
         run: |
           cd telon-gateway-app/android
           cat << 'EOF' > fix_java.js
@@ -204,7 +202,6 @@ jobs:
               }
           }
 
-          // Đẻ file C++ giả mạo
           const pjsuaDir = "../node_modules/react-native-sip2/android/src/main/java/org/pjsip/pjsua2";
           if (fs.existsSync(pjsuaDir)) {
               let stdTypes = new Set(["String", "Exception", "RuntimeException", "IllegalArgumentException", "UnsupportedOperationException", "Object", "Class", "System", "Runtime", "Thread", "Override", "SuppressWarnings", "Math", "Integer", "Long", "Boolean", "Double", "Float", "Short", "Byte", "Character", "CharSequence", "Vector", "List", "ArrayList", "Map", "HashMap", "Set", "HashSet", "Iterator", "java", "lang", "util", "org", "pjsip", "pjsua2"]);
@@ -228,34 +225,56 @@ jobs:
               });
           }
 
-          // ================= TUYỆT KỸ PROXY CLASS =================
-          const targetClasses = ["ReplaceDialerModulePackage", "PjSipModulePackage", "TeleModulePackage"];
-          const wantedPackages = {
-              "ReplaceDialerModulePackage": "one.telefon.replacedialer",
-              "PjSipModulePackage": "one.telefon.android",
-              "TeleModulePackage": "one.telefon.tele"
-          };
-          
-          let allJava = files.filter(f => f.endsWith(".java"));
-          targetClasses.forEach(cls => {
-              let realFile = allJava.find(f => f.endsWith("/" + cls + ".java"));
-              if (realFile) {
-                  let content = fs.readFileSync(realFile, "utf8");
-                  let match = content.match(/package\s+([a-zA-Z0-9_.]+)\s*;/);
-                  if (match) {
-                      let realPkg = match[1];
-                      let wantedPkg = wantedPackages[cls];
-                      if (realPkg !== wantedPkg) {
-                          let proxyDir = path.join("app/src/main/java", ...wantedPkg.split("."));
-                          fs.mkdirSync(proxyDir, {recursive: true});
-                          let proxyFile = path.join(proxyDir, cls + ".java");
-                          fs.writeFileSync(proxyFile, `package ${wantedPkg};\npublic class ${cls} extends ${realPkg}.${cls} {}\n`);
-                          console.log(`[PROXY CLASS] Đã tạo thế thân cho: ${wantedPkg}.${cls}`);
+          // ===== TUYỆT KỸ: BÓP NGHẸT SỰ NGU NGỐC CỦA REACT NATIVE CLI =====
+          const rnModules = [
+              "../node_modules/react-native-tele",
+              "../node_modules/react-native-sip2",
+              "../node_modules/react-native-replace-dialer"
+          ];
+
+          rnModules.forEach(mod => {
+              let androidDir = path.join(mod, "android");
+              if (!fs.existsSync(androidDir)) return;
+
+              let pkgName = null;
+              let clsName = null;
+
+              function findReactPackage(dir) {
+                  if (clsName) return;
+                  if (!fs.existsSync(dir)) return;
+                  const files = fs.readdirSync(dir);
+                  for (let file of files) {
+                      let fullPath = path.join(dir, file);
+                      if (fs.statSync(fullPath).isDirectory() && !file.includes("build")) {
+                          findReactPackage(fullPath);
+                      } else if (file.endsWith(".java")) {
+                          let text = fs.readFileSync(fullPath, "utf8");
+                          if (text.includes("implements ReactPackage") || text.includes("implements com.facebook.react.ReactPackage")) {
+                              let mPkg = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/);
+                              let mCls = text.match(/class\s+([a-zA-Z0-9_]+)\s+implements/);
+                              if (mPkg && mCls) {
+                                  pkgName = mPkg[1];
+                                  clsName = mCls[1];
+                              }
+                          }
+                          // Dự phòng bọc lót nếu tác giả viết quá dị
+                          if (!clsName) {
+                              if (text.includes("class TeleModulePackage")) { clsName = "TeleModulePackage"; let m = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/); if(m) pkgName = m[1]; }
+                              if (text.includes("class ReplaceDialerModulePackage")) { clsName = "ReplaceDialerModulePackage"; let m = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/); if(m) pkgName = m[1]; }
+                              if (text.includes("class PjSipModulePackage")) { clsName = "PjSipModulePackage"; let m = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/); if(m) pkgName = m[1]; }
+                          }
                       }
                   }
               }
+              findReactPackage(androidDir);
+
+              if (pkgName && clsName) {
+                  let configCode = `module.exports = { dependency: { platforms: { android: { packageImportPath: "import ${pkgName}.${clsName};", packageInstance: "new ${clsName}()" } } } };`;
+                  fs.writeFileSync(path.join(mod, "react-native.config.js"), configCode);
+                  console.log("DA EP CONFIG CHUAN CHO: " + mod + " -> " + pkgName + "." + clsName);
+              }
           });
-          // ========================================================
+          // ================================================================
           EOF
           node fix_java.js
           
