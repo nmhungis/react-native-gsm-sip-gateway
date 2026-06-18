@@ -97,7 +97,6 @@ jobs:
               if (!modDir.includes("sip2-android-core")) androidDir = path.join(modDir, "android");
               if (!fs.existsSync(androidDir)) fs.mkdirSync(androidDir, {recursive: true});
               
-              // TÌM TÊN THẬT TỪ MÃ NGUỒN JAVA (Source of Truth)
               let truePkg = null;
               let reactClass = null;
               function findTruth(dir) {
@@ -126,14 +125,10 @@ jobs:
                   if (modDir.includes("sip2-android-core")) truePkg = "one.telefon.sip2.core";
               }
               
-              console.log("DA TIM THAY ROOT PACKAGE: " + truePkg + " CHO " + modDir);
-              
-              // 1. Ép Manifest khớp tên thật
               let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
               if (!fs.existsSync(path.dirname(manifestPath))) fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
               fs.writeFileSync(manifestPath, '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="' + truePkg + '"></manifest>');
               
-              // 2. Ép Build Gradle khớp tên thật
               let gradleFile = path.join(androidDir, "build.gradle");
               if (!fs.existsSync(gradleFile)) {
                   fs.writeFileSync(gradleFile, "apply plugin: 'com.android.library'\nandroid {\n    namespace '" + truePkg + "'\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }\n}\ndependencies {\n    implementation 'com.facebook.react:react-native:+'\n}\n");
@@ -142,18 +137,19 @@ jobs:
                   if (gradle.includes("android-library") && !gradle.includes("com.android.library")) gradle = gradle.replace(/apply\s+plugin:\s*['"]android-library['"]/g, "apply plugin: 'com.android.library'");
                   else if (!gradle.includes("com.android.library") && !gradle.includes("com.android.application")) gradle = "apply plugin: 'com.android.library'\n" + gradle;
 
-                  if (!gradle.includes("namespace")) {
-                      gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + truePkg + "'\n");
-                  } else {
-                      gradle = gradle.replace(/namespace\s+['"][^'"]+['"]/, "namespace '" + truePkg + "'");
-                  }
+                  // CÀN QUÉT: Xóa sạch khai báo cũ
+                  gradle = gradle.replace(/compileSdkVersion[^\n]*/g, "");
+                  gradle = gradle.replace(/targetSdkVersion[^\n]*/g, "");
+                  gradle = gradle.replace(/buildToolsVersion[^\n]*/g, "");
+                  gradle = gradle.replace(/namespace[^\n]*/g, "");
+
+                  // BƠM MÁU: Nạp trực tiếp vào thẻ android
+                  gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + truePkg + "'\n    compileSdkVersion 34\n    defaultConfig {\n        targetSdkVersion 34\n    }\n");
                   
                   gradle = gradle.replace(/\bcompile\s+/g, "implementation ").replace(/\bcompile\(/g, "implementation(");
-                  gradle = gradle.replace(/compileSdkVersion\s+\d+/g, "compileSdkVersion 34").replace(/targetSdkVersion\s+\d+/g, "targetSdkVersion 34").replace(/buildToolsVersion\s+['"][^'"]+['"]/g, "");
                   fs.writeFileSync(gradleFile, gradle);
               }
               
-              // 3. Ép React Native gọi đúng tên thật
               if (reactClass && !modDir.includes("sip2-android-core")) {
                   let configCode = `module.exports = { dependency: { platforms: { android: { packageImportPath: "import ${truePkg}.${reactClass};", packageInstance: "new ${reactClass}()" } } } };`;
                   fs.writeFileSync(path.join(modDir, "react-native.config.js"), configCode);
