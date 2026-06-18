@@ -73,7 +73,7 @@ jobs:
           cd telon-gateway-app
           echo "module.exports = { dependencyConfig: () => ({}), projectConfig: () => ({}), findPodfilePaths: () => [] };" > node_modules/@react-native-community/cli-platform-ios/build/config/index.js
 
-      - name: "7. Force AGP 8.6 Standards"
+      - name: "7. Force AGP 8.6 Standards (TON TRONG MA NGUON GOC)"
         run: |
           cd telon-gateway-app/android
           sed -i "s/gradle-.*-all\.zip/gradle-8.6-all.zip/g" gradle/wrapper/gradle-wrapper.properties
@@ -95,19 +95,14 @@ jobs:
           dirs.forEach(androidDir => {
               if (!fs.existsSync(androidDir)) fs.mkdirSync(androidDir, {recursive: true});
               let gradleFile = path.join(androidDir, "build.gradle");
-              
-              // GIỮ NGUYÊN TÊN GỐC ĐỂ PACKAGE LIST KHÔNG BỊ LỖI
-              let pkgName = "one.telefon." + path.basename(path.dirname(androidDir)).replace(/react-native-/g, "").replace(/-/g, "");
-              if (androidDir.includes("sip2-android-core")) pkgName = "one.telefon.sip2.core";
-              
               let manifestPath = path.join(androidDir, "src", "main", "AndroidManifest.xml");
+              
+              let pkgName = "";
               if (fs.existsSync(manifestPath)) {
                   let m = fs.readFileSync(manifestPath, "utf8").match(/package="([^"]+)"/);
                   if (m) pkgName = m[1];
-              } else {
-                  fs.mkdirSync(path.dirname(manifestPath), {recursive: true});
-                  fs.writeFileSync(manifestPath, "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"" + pkgName + "\"></manifest>");
               }
+              if (!pkgName) return; // Bỏ qua nếu không có manifest để tránh rác code
               
               if (!fs.existsSync(gradleFile)) {
                   fs.writeFileSync(gradleFile, "apply plugin: 'com.android.library'\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }\n}\ndependencies {\n    implementation 'com.facebook.react:react-native:+'\n}\n");
@@ -119,7 +114,11 @@ jobs:
                   if (!gradle.includes("namespace")) {
                       if (gradle.includes("android {")) gradle = gradle.replace(/android\s*\{/, "android {\n    namespace '" + pkgName + "'");
                       else gradle += "\nandroid {\n    namespace '" + pkgName + "'\n    compileSdkVersion 34\n}\n";
+                  } else {
+                      // Cập nhật lại namespace cho khớp 100% với Manifest
+                      gradle = gradle.replace(/namespace\s+['"][^'"]+['"]/, "namespace '" + pkgName + "'");
                   }
+                  
                   gradle = gradle.replace(/\bcompile\s+/g, "implementation ").replace(/\bcompile\(/g, "implementation(");
                   gradle = gradle.replace(/compileSdkVersion\s+\d+/g, "compileSdkVersion 34").replace(/targetSdkVersion\s+\d+/g, "targetSdkVersion 34").replace(/buildToolsVersion\s+['"][^'"]+['"]/g, "");
                   fs.writeFileSync(gradleFile, gradle);
@@ -225,31 +224,10 @@ jobs:
           echo "android.defaults.buildfeatures.buildconfig=true" >> gradle.properties
           echo "android.nonTransitiveRClass=false" >> gradle.properties
 
-      - name: "9. Build APK (Vượt ải PackageList)"
+      - name: "9. Build APK"
         run: |
           cd telon-gateway-app/android
           chmod +x gradlew
-          
-          # Cho Gradle chạy nháp để nó tự động đẻ ra file PackageList.java
-          ./gradlew generatePackageList || true
-          
-          # PHỤC KÍCH: Sửa thẳng file do Gradle vừa đẻ ra
-          cat << 'EOF' > fix_packagelist.js
-          const fs = require("fs");
-          const file = "app/build/generated/rncli/src/main/java/com/facebook/react/PackageList.java";
-          if (fs.existsSync(file)) {
-              let text = fs.readFileSync(file, "utf8");
-              // Vá lại đúng đường dẫn thư viện
-              text = text.replace(/import one\.telefon\.replacedialer\.ReplaceDialerModulePackage;/g, "import one.telefon.reactnativereplacedialer.ReplaceDialerModulePackage;");
-              text = text.replace(/import one\.telefon\.sip2\.core\.PjSipModulePackage;/g, "import one.telefon.sip2.PjSipModulePackage;");
-              text = text.replace(/import one\.telefon\.tele\.TeleModulePackage;/g, "import one.telefon.reactnativetele.TeleModulePackage;");
-              fs.writeFileSync(file, text);
-              console.log("DA VA XONG PACKAGELIST!");
-          }
-          EOF
-          node fix_packagelist.js
-          
-          # Build thật sự
           ./gradlew assembleDebug
 
       - name: "10. Upload Artifact"
