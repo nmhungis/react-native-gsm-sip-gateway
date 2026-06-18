@@ -225,56 +225,22 @@ jobs:
               });
           }
 
-          // ===== TUYỆT KỸ: BÓP NGHẸT SỰ NGU NGỐC CỦA REACT NATIVE CLI =====
-          const rnModules = [
-              "../node_modules/react-native-tele",
-              "../node_modules/react-native-sip2",
-              "../node_modules/react-native-replace-dialer"
-          ];
+          // ===== TUYỆT KỸ CHỐT HẠ: GÁN CỨNG (HARDCODE) REACT NATIVE CONFIG =====
+          const hardcodedConfig = {
+              "../node_modules/react-native-tele": { pkg: "one.telefon.reactnativetele", cls: "TeleModulePackage" },
+              "../node_modules/react-native-sip2": { pkg: "one.telefon.android", cls: "PjSipModulePackage" },
+              "../node_modules/react-native-replace-dialer": { pkg: "one.telefon.reactnativereplacedialer", cls: "ReplaceDialerModulePackage" }
+          };
 
-          rnModules.forEach(mod => {
-              let androidDir = path.join(mod, "android");
-              if (!fs.existsSync(androidDir)) return;
-
-              let pkgName = null;
-              let clsName = null;
-
-              function findReactPackage(dir) {
-                  if (clsName) return;
-                  if (!fs.existsSync(dir)) return;
-                  const files = fs.readdirSync(dir);
-                  for (let file of files) {
-                      let fullPath = path.join(dir, file);
-                      if (fs.statSync(fullPath).isDirectory() && !file.includes("build")) {
-                          findReactPackage(fullPath);
-                      } else if (file.endsWith(".java")) {
-                          let text = fs.readFileSync(fullPath, "utf8");
-                          if (text.includes("implements ReactPackage") || text.includes("implements com.facebook.react.ReactPackage")) {
-                              let mPkg = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/);
-                              let mCls = text.match(/class\s+([a-zA-Z0-9_]+)\s+implements/);
-                              if (mPkg && mCls) {
-                                  pkgName = mPkg[1];
-                                  clsName = mCls[1];
-                              }
-                          }
-                          // Dự phòng bọc lót nếu tác giả viết quá dị
-                          if (!clsName) {
-                              if (text.includes("class TeleModulePackage")) { clsName = "TeleModulePackage"; let m = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/); if(m) pkgName = m[1]; }
-                              if (text.includes("class ReplaceDialerModulePackage")) { clsName = "ReplaceDialerModulePackage"; let m = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/); if(m) pkgName = m[1]; }
-                              if (text.includes("class PjSipModulePackage")) { clsName = "PjSipModulePackage"; let m = text.match(/package\s+([a-zA-Z0-9_.]+)\s*;/); if(m) pkgName = m[1]; }
-                          }
-                      }
-                  }
-              }
-              findReactPackage(androidDir);
-
-              if (pkgName && clsName) {
-                  let configCode = `module.exports = { dependency: { platforms: { android: { packageImportPath: "import ${pkgName}.${clsName};", packageInstance: "new ${clsName}()" } } } };`;
+          for (let mod in hardcodedConfig) {
+              if (fs.existsSync(mod)) {
+                  let cfg = hardcodedConfig[mod];
+                  let configCode = `module.exports = { dependency: { platforms: { android: { packageImportPath: "import ${cfg.pkg}.${cfg.cls};", packageInstance: "new ${cfg.cls}()" } } } };`;
                   fs.writeFileSync(path.join(mod, "react-native.config.js"), configCode);
-                  console.log("DA EP CONFIG CHUAN CHO: " + mod + " -> " + pkgName + "." + clsName);
+                  console.log("DA EP CUNG CONFIG CHUAN CHO: " + mod + " -> " + cfg.pkg + "." + cfg.cls);
               }
-          });
-          // ================================================================
+          }
+          // ======================================================================
           EOF
           node fix_java.js
           
